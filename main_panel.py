@@ -1,7 +1,8 @@
 import krita
 from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, 
                              QPushButton, QComboBox, QLabel, QSpinBox, 
-                             QMenu, QWidgetAction, QListWidgetItem, QCheckBox, QFormLayout)
+                             QMenu, QWidgetAction, QListWidgetItem, QCheckBox, 
+                             QFormLayout, QDoubleSpinBox, QApplication)
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QIcon, QPixmap
 
@@ -15,21 +16,18 @@ class SmartPanelDocker(QDockWidget):
         self.state = PanelState()
         
         self.main_widget = QWidget()
-        
-        # Main layout is dynamic (TopToBottom or LeftToRight)
         self.main_layout = QBoxLayout(QBoxLayout.TopToBottom)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
         
-        # Top Bar is now a dynamic thin strip
         self.top_bar = QWidget()
-        self.top_bar.setStyleSheet("background-color: #202020;") # Slight tint to separate from grid
+        self.top_bar.setStyleSheet("background-color: #202020;") 
         self.bar_layout = QBoxLayout(QBoxLayout.LeftToRight)
         self.bar_layout.setContentsMargins(2, 2, 2, 2)
         self.bar_layout.setSpacing(0)
         
         self.btn_settings = QPushButton("⚙")
-        self.btn_settings.setFixedSize(20, 20) # Thin button
+        self.btn_settings.setFixedSize(20, 20)
         self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 14px; } QPushButton:hover { color: white; }")
         
         self.bar_layout.addStretch()
@@ -38,7 +36,6 @@ class SmartPanelDocker(QDockWidget):
         
         self.grid = AdaptiveListWidget(self.state, self)
         
-        # Assemble Main Layout
         self.main_layout.addWidget(self.top_bar)
         self.main_layout.addWidget(self.grid)
         self.main_widget.setLayout(self.main_layout)
@@ -54,28 +51,26 @@ class SmartPanelDocker(QDockWidget):
         self.grid.recalculate_math(force=True)
 
     def update_bar_orientation(self, layout_type, direction):
-        """Dynamically moves the settings bar to create symmetry based on orientation and invert setting"""
         if layout_type == "vertical":
-            self.bar_layout.setDirection(QBoxLayout.LeftToRight) # Horizontal strip
-            if direction == "right": # Inverted start
-                self.main_layout.setDirection(QBoxLayout.BottomToTop) # Moves bar to Bottom
+            self.bar_layout.setDirection(QBoxLayout.LeftToRight) 
+            if direction == "right":
+                self.main_layout.setDirection(QBoxLayout.BottomToTop) 
             else:
-                self.main_layout.setDirection(QBoxLayout.TopToBottom) # Moves bar to Top
+                self.main_layout.setDirection(QBoxLayout.TopToBottom) 
         else:
-            self.bar_layout.setDirection(QBoxLayout.TopToBottom) # Vertical strip
-            if direction == "bottom": # Inverted start
-                self.main_layout.setDirection(QBoxLayout.RightToLeft) # Moves bar to Right
+            self.bar_layout.setDirection(QBoxLayout.TopToBottom) 
+            if direction == "bottom":
+                self.main_layout.setDirection(QBoxLayout.RightToLeft) 
             else:
-                self.main_layout.setDirection(QBoxLayout.LeftToRight) # Moves bar to Left
+                self.main_layout.setDirection(QBoxLayout.LeftToRight) 
 
     def build_popup_menu(self):
         self.settings_menu = QMenu(self)
         self.settings_menu.setStyleSheet("QMenu { background-color: #2D2D2D; border: 1px solid #555; border-radius: 6px; color: #EEE; }")
         
         settings_widget = QWidget()
-        settings_widget.setMinimumWidth(220) # Prevents UI squishing
+        settings_widget.setMinimumWidth(240)
         
-        # QFormLayout perfectly aligns labels and inputs without compression
         form_layout = QFormLayout()
         form_layout.setContentsMargins(10, 10, 10, 10)
         form_layout.setSpacing(8)
@@ -90,6 +85,12 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_layout = QComboBox()
         self.cmb_layout.addItems(["vertical", "horizontal"])
         self.cmb_layout.setCurrentText(self.state.manual_layout)
+        
+        # New Scale Factor
+        self.spin_scale = QDoubleSpinBox()
+        self.spin_scale.setRange(0.5, 10.0)
+        self.spin_scale.setSingleStep(0.1)
+        self.spin_scale.setValue(self.state.scale_factor)
         
         self.spin_divider = QSpinBox()
         self.spin_divider.setRange(1, 10)
@@ -109,18 +110,23 @@ class SmartPanelDocker(QDockWidget):
         
         self.cmb_dir = QComboBox()
         
-        # Add rows to Form Layout
-        form_layout.addRow("Mode:", self.cmb_mode)
-        form_layout.addRow("", self.chk_auto_invert) # No label for checkbox
+        # Technical actuals readout
+        self.lbl_actuals = QLabel("Actual: -")
+        self.lbl_actuals.setStyleSheet("color: #E2E8F0; font-size: 11px; background: #1A202C; padding: 4px; border-radius: 4px;")
+        self.lbl_actuals.setAlignment(Qt.AlignCenter)
         
         self.lbl_layout = QLabel("Manual Layout:")
-        form_layout.addRow(self.lbl_layout, self.cmb_layout)
         
-        form_layout.addRow("Divider (Cols/Rows):", self.spin_divider)
+        form_layout.addRow("Mode:", self.cmb_mode)
+        form_layout.addRow("", self.chk_auto_invert)
+        form_layout.addRow(self.lbl_layout, self.cmb_layout)
+        form_layout.addRow("Scale (Base 32px):", self.spin_scale)
+        form_layout.addRow("Target Cols/Rows:", self.spin_divider)
         form_layout.addRow("Proportions (W : H):", aspect_layout)
         
         self.lbl_dir = QLabel("Start Direction:")
         form_layout.addRow(self.lbl_dir, self.cmb_dir)
+        form_layout.addRow(self.lbl_actuals)
         
         settings_widget.setLayout(form_layout)
         action = QWidgetAction(self.settings_menu)
@@ -132,6 +138,7 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_mode.currentTextChanged.connect(self.on_settings_changed)
         self.chk_auto_invert.stateChanged.connect(self.on_settings_changed)
         self.cmb_layout.currentTextChanged.connect(self.on_settings_changed)
+        self.spin_scale.valueChanged.connect(self.on_settings_changed)
         self.spin_divider.valueChanged.connect(self.on_settings_changed)
         self.spin_asp_w.valueChanged.connect(self.on_settings_changed)
         self.spin_asp_h.valueChanged.connect(self.on_settings_changed)
@@ -158,15 +165,38 @@ class SmartPanelDocker(QDockWidget):
                 self.cmb_dir.setCurrentText(self.state.start_dir_horiz)
             self.cmb_dir.blockSignals(False)
 
+    def update_actuals_display(self):
+        """Updates the technical readout in the settings menu"""
+        div = self.state.actual_divider
+        w = int(self.state.actual_w)
+        h = int(self.state.actual_h)
+        self.lbl_actuals.setText(f"Actual Grid: {div} | Slot Size: {w}x{h} px")
+
     def show_popup_settings(self):
-        # Shows popup relative to the gear button position
-        pos = self.btn_settings.mapToGlobal(QPoint(0, self.btn_settings.height()))
-        self.settings_menu.exec_(pos)
+        """Smart diagonal positioning based on screen quadrants"""
+        btn_pos = self.btn_settings.mapToGlobal(QPoint(0, 0))
+        screen_rect = QApplication.desktop().screenGeometry(self.btn_settings)
+        menu_size = self.settings_menu.sizeHint()
+
+        # Default assumes Top-Left origin, opening Bottom-Right
+        x = btn_pos.x()
+        y = btn_pos.y() + self.btn_settings.height()
+
+        # If button is in the Right half of the screen, open to the Left
+        if btn_pos.x() > screen_rect.center().x():
+            x = btn_pos.x() - menu_size.width() + self.btn_settings.width()
+
+        # If button is in the Bottom half of the screen, open to the Top
+        if btn_pos.y() > screen_rect.center().y():
+            y = btn_pos.y() - menu_size.height()
+
+        self.settings_menu.exec_(QPoint(x, y))
 
     def on_settings_changed(self):
         self.state.mode = self.cmb_mode.currentText()
         self.state.auto_invert = self.chk_auto_invert.isChecked()
         self.state.manual_layout = self.cmb_layout.currentText()
+        self.state.scale_factor = float(self.spin_scale.value())
         self.state.main_divider = self.spin_divider.value()
         self.state.aspect_w = float(self.spin_asp_w.value())
         self.state.aspect_h = float(self.spin_asp_h.value())
