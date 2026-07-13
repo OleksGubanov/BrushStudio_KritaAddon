@@ -1,7 +1,7 @@
 import krita
-from PyQt5.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, 
+from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, 
                              QPushButton, QComboBox, QLabel, QSpinBox, 
-                             QMenu, QWidgetAction, QListWidgetItem, QCheckBox)
+                             QMenu, QWidgetAction, QListWidgetItem, QCheckBox, QFormLayout)
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QIcon, QPixmap
 
@@ -15,56 +15,75 @@ class SmartPanelDocker(QDockWidget):
         self.state = PanelState()
         
         self.main_widget = QWidget()
-        self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
         
-        # Top bar with settings button
+        # Main layout is dynamic (TopToBottom or LeftToRight)
+        self.main_layout = QBoxLayout(QBoxLayout.TopToBottom)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        # Top Bar is now a dynamic thin strip
         self.top_bar = QWidget()
-        top_layout = QHBoxLayout()
-        top_layout.setContentsMargins(4, 4, 4, 0)
+        self.top_bar.setStyleSheet("background-color: #202020;") # Slight tint to separate from grid
+        self.bar_layout = QBoxLayout(QBoxLayout.LeftToRight)
+        self.bar_layout.setContentsMargins(2, 2, 2, 2)
+        self.bar_layout.setSpacing(0)
         
         self.btn_settings = QPushButton("⚙")
-        self.btn_settings.setFixedSize(24, 24)
-        self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; }")
+        self.btn_settings.setFixedSize(20, 20) # Thin button
+        self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 14px; } QPushButton:hover { color: white; }")
         
-        top_layout.addStretch()
-        top_layout.addWidget(self.btn_settings)
-        self.top_bar.setLayout(top_layout)
+        self.bar_layout.addStretch()
+        self.bar_layout.addWidget(self.btn_settings)
+        self.top_bar.setLayout(self.bar_layout)
         
-        # Pass 'self' so grid can access load_real_brushes
         self.grid = AdaptiveListWidget(self.state, self)
         
-        self.layout.addWidget(self.top_bar)
-        self.layout.addWidget(self.grid)
-        self.main_widget.setLayout(self.layout)
+        # Assemble Main Layout
+        self.main_layout.addWidget(self.top_bar)
+        self.main_layout.addWidget(self.grid)
+        self.main_widget.setLayout(self.main_layout)
         self.setWidget(self.main_widget)
         
         self.build_popup_menu()
         
-        # Connect signals
         self.btn_settings.clicked.connect(self.show_popup_settings)
         self.grid.itemClicked.connect(self.on_brush_clicked)
         self.dockLocationChanged.connect(self.on_dock_changed)
         self.topLevelChanged.connect(self.on_float_changed)
         
-        # Initial boot render
         self.grid.recalculate_math(force=True)
 
+    def update_bar_orientation(self, layout_type, direction):
+        """Dynamically moves the settings bar to create symmetry based on orientation and invert setting"""
+        if layout_type == "vertical":
+            self.bar_layout.setDirection(QBoxLayout.LeftToRight) # Horizontal strip
+            if direction == "right": # Inverted start
+                self.main_layout.setDirection(QBoxLayout.BottomToTop) # Moves bar to Bottom
+            else:
+                self.main_layout.setDirection(QBoxLayout.TopToBottom) # Moves bar to Top
+        else:
+            self.bar_layout.setDirection(QBoxLayout.TopToBottom) # Vertical strip
+            if direction == "bottom": # Inverted start
+                self.main_layout.setDirection(QBoxLayout.RightToLeft) # Moves bar to Right
+            else:
+                self.main_layout.setDirection(QBoxLayout.LeftToRight) # Moves bar to Left
+
     def build_popup_menu(self):
-        """Creates the floating settings menu and its internal UI"""
         self.settings_menu = QMenu(self)
-        self.settings_menu.setStyleSheet("QMenu { background-color: #2D2D2D; border: 1px solid #555; border-radius: 8px; color: #EEE; }")
+        self.settings_menu.setStyleSheet("QMenu { background-color: #2D2D2D; border: 1px solid #555; border-radius: 6px; color: #EEE; }")
         
         settings_widget = QWidget()
-        vbox = QVBoxLayout()
-        vbox.setContentsMargins(10, 10, 10, 10)
+        settings_widget.setMinimumWidth(220) # Prevents UI squishing
+        
+        # QFormLayout perfectly aligns labels and inputs without compression
+        form_layout = QFormLayout()
+        form_layout.setContentsMargins(10, 10, 10, 10)
+        form_layout.setSpacing(8)
         
         self.cmb_mode = QComboBox()
         self.cmb_mode.addItems(["auto", "manual"])
         self.cmb_mode.setCurrentText(self.state.mode)
         
-        # Auto Mode specific checkbox
         self.chk_auto_invert = QCheckBox("Invert Direction")
         self.chk_auto_invert.setChecked(self.state.auto_invert)
         
@@ -77,6 +96,7 @@ class SmartPanelDocker(QDockWidget):
         self.spin_divider.setValue(self.state.main_divider)
         
         aspect_layout = QHBoxLayout()
+        aspect_layout.setContentsMargins(0,0,0,0)
         self.spin_asp_w = QSpinBox()
         self.spin_asp_w.setRange(1, 100)
         self.spin_asp_w.setValue(int(self.state.aspect_w))
@@ -89,30 +109,26 @@ class SmartPanelDocker(QDockWidget):
         
         self.cmb_dir = QComboBox()
         
+        # Add rows to Form Layout
+        form_layout.addRow("Mode:", self.cmb_mode)
+        form_layout.addRow("", self.chk_auto_invert) # No label for checkbox
+        
         self.lbl_layout = QLabel("Manual Layout:")
+        form_layout.addRow(self.lbl_layout, self.cmb_layout)
+        
+        form_layout.addRow("Divider (Cols/Rows):", self.spin_divider)
+        form_layout.addRow("Proportions (W : H):", aspect_layout)
+        
         self.lbl_dir = QLabel("Start Direction:")
+        form_layout.addRow(self.lbl_dir, self.cmb_dir)
         
-        # Assemble layout
-        vbox.addWidget(QLabel("Mode:"))
-        vbox.addWidget(self.cmb_mode)
-        vbox.addWidget(self.chk_auto_invert)
-        vbox.addWidget(self.lbl_layout)
-        vbox.addWidget(self.cmb_layout)
-        vbox.addWidget(QLabel("Divider (Rows/Cols):"))
-        vbox.addWidget(self.spin_divider)
-        vbox.addWidget(QLabel("Proportions (W : H):"))
-        vbox.addLayout(aspect_layout)
-        vbox.addWidget(self.lbl_dir)
-        vbox.addWidget(self.cmb_dir)
-        
-        settings_widget.setLayout(vbox)
+        settings_widget.setLayout(form_layout)
         action = QWidgetAction(self.settings_menu)
         action.setDefaultWidget(settings_widget)
         self.settings_menu.addAction(action)
         
         self.update_settings_visibility()
 
-        # Connect UI logic
         self.cmb_mode.currentTextChanged.connect(self.on_settings_changed)
         self.chk_auto_invert.stateChanged.connect(self.on_settings_changed)
         self.cmb_layout.currentTextChanged.connect(self.on_settings_changed)
@@ -122,7 +138,6 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_dir.currentTextChanged.connect(self.on_dir_changed)
 
     def update_settings_visibility(self):
-        """Hides or shows options based on auto or manual mode"""
         is_auto = (self.cmb_mode.currentText() == "auto")
         is_manual = not is_auto
         
@@ -144,6 +159,7 @@ class SmartPanelDocker(QDockWidget):
             self.cmb_dir.blockSignals(False)
 
     def show_popup_settings(self):
+        # Shows popup relative to the gear button position
         pos = self.btn_settings.mapToGlobal(QPoint(0, self.btn_settings.height()))
         self.settings_menu.exec_(pos)
 
@@ -176,12 +192,10 @@ class SmartPanelDocker(QDockWidget):
         self.grid.recalculate_math(force=True)
 
     def load_real_brushes(self, effective_layout="vertical", effective_dir="left"):
-        """Fetches presets from Krita and populates the grid"""
         self.grid.clear()
         app = krita.Krita.instance()
-        all_presets = list(app.resources("preset").items())[:30] # Limit to 30 for prototype
+        all_presets = list(app.resources("preset").items())[:30]
         
-        # Reverse list if rendering bottom-to-top horizontally
         if effective_layout == "horizontal" and effective_dir == "bottom":
             all_presets.reverse()
             
@@ -194,16 +208,11 @@ class SmartPanelDocker(QDockWidget):
             self.grid.addItem(item)
 
     def on_brush_clicked(self, item):
-        """Applies the selected brush preset to the active document"""
         preset_name = item.data(Qt.UserRole)
         app = krita.Krita.instance()
-        
         action = app.action('KritaShape/KritaToolFreehand')
-        if action: 
-            action.trigger()
-            
+        if action: action.trigger()
         window = app.activeWindow()
         if window and window.activeView():
             preset = app.resources("preset").get(preset_name)
-            if preset: 
-                window.activeView().setCurrentBrushPreset(preset)
+            if preset: window.activeView().setCurrentBrushPreset(preset)
