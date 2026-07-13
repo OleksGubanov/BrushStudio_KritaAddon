@@ -1,85 +1,101 @@
 import krita
 from PyQt5.QtWidgets import QDockWidget, QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QListView
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QIcon, QColor
+from PyQt5.QtGui import QIcon, QPixmap
 
 class SmartPanelDocker(QDockWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Smart Tools")
         
-        # Основной виджет и Layout
         self.main_widget = QWidget()
         self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(5, 5, 5, 5) # Минимальные отступы как в вебе
+        self.layout.setContentsMargins(8, 8, 8, 8)
         
-        # Создаем адаптивную сетку для кнопок
+        # --- Адаптивная Сетка ---
         self.grid = QListWidget()
-        self.grid.setViewMode(QListView.IconMode) # Режим сетки
-        self.grid.setResizeMode(QListView.Adjust) # Адаптивное перестроение при ресайзе
-        self.grid.setSpacing(8) # Расстояние между кнопками (Figma style)
+        self.grid.setViewMode(QListView.IconMode) # Режим плитки
+        self.grid.setResizeMode(QListView.Adjust) # Автоматический перенос строк при сужении окна
+        self.grid.setMovement(QListView.Static)
+        self.grid.setSpacing(6) # Отступы между слотами (Figma style)
+        self.grid.setUniformItemSizes(True) # КРИТИЧНО: делает все слоты идеально ровными, без "кривизны"
+        self.grid.setWordWrap(False)
         
-        # Стилизуем под Figma (Dark mode, скругления)
+        # --- Минималистичный Дизайн (QSS) ---
         self.grid.setStyleSheet("""
             QListWidget {
-                background-color: #2C2C2C; /* Темный фон */
-                border-radius: 10px;       /* Скругленные углы всей панели */
-                border: 1px solid #3A3A3A;
-                padding: 4px;
+                background-color: transparent;
+                border: none;
             }
             QListWidget::item {
-                background-color: #383838;
-                border-radius: 6px;        /* Скругления самих кнопок */
-                padding: 5px;
+                background-color: #2D2D2D;
+                border-radius: 8px; /* Скругление слотов */
             }
             QListWidget::item:selected {
-                background-color: #0D99FF; /* Синий акцент как в Figma */
-                color: white;
+                background-color: #3A3A3A;
+                border: 2px solid #0D99FF; /* Синий акцент как в Figma */
+                border-radius: 8px;
             }
             QListWidget::item:hover {
-                background-color: #4A4A4A;
+                background-color: #3D3D3D;
             }
         """)
         
-        # Добавляем тестовые слоты (позже здесь будет подгрузка из пресетов)
-        self.add_test_buttons()
+        self.load_real_brushes()
         
         self.layout.addWidget(self.grid)
         self.main_widget.setLayout(self.layout)
         self.setWidget(self.main_widget)
-
-    def add_test_buttons(self):
-        # Генерируем 10 тестовых ячеек для проверки адаптивной верстки
-        for i in range(10):
-            item = QListWidgetItem(f"Brush {i+1}")
-            # Пока без иконок, задаем жесткий размер слота
-            item.setSizeHint(QSize(60, 60)) 
-            item.setTextAlignment(Qt.AlignCenter)
-            self.grid.addItem(item)
-            
-        # Подключаем сигнал клика к нашей будущей функции-перехватчику
+        
+        # Подключаем клик
         self.grid.itemClicked.connect(self.on_brush_clicked)
 
+    def load_real_brushes(self):
+        """Загружаем реальные кисти из движка Krita"""
+        app = krita.Krita.instance()
+        all_presets = app.resources("preset") # Получаем словарь всех кистей
+        
+        # Для прототипа загрузим первые 20 кистей, чтобы панель была компактной.
+        # Позже мы привяжем это к конкретным тегам (например, только "Скетчинг").
+        count = 0
+        for name, preset in all_presets.items():
+            if count >= 20: break
+            
+            # Достаем картинку пресета и сжимаем её под интерфейс, сохраняя пропорции и сглаживание
+            img = preset.image()
+            scaled_img = img.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon = QIcon(QPixmap.fromImage(scaled_img))
+            
+            # Создаем слот
+            item = QListWidgetItem(icon, "") # Имя не пишем, чтобы не засорять дизайн
+            item.setToolTip(name) # Имя будет всплывать при наведении мыши
+            item.setData(Qt.UserRole, name) # Прячем системное имя кисти внутрь слота
+            item.setSizeHint(QSize(60, 60)) # Жесткий размер слота (иконка 50 + отступы)
+            
+            self.grid.addItem(item)
+            count += 1
+
     def on_brush_clicked(self, item):
-        # Здесь будет логика: 
-        # 1. Считать текущий размер кисти
-        # 2. Переключить пресет в Krita
-        # 3. Вернуть размер обратно
-        print(f"Выбрана: {item.text()} - Готовим перехват размера!")
-
-
-class SmartPanelExtension(krita.Extension):
-    def __init__(self, parent):
-        super().__init__(parent)
-
-    def setup(self):
-        pass
-
-    def createActions(self, window):
-        action = window.createAction("smart_brush_panel_id", "Smart Brush Panel", "tools/scripts")
-        action.triggered.connect(self.add_docker)
-
-    def add_docker(self):
-        # Добавляем наш докер в интерфейс
-        docker = SmartPanelDocker()
-        Krita.instance().activeWindow().qwindow().addDockWidget(Qt.RightDockWidgetArea, docker)
+        """Логика при выборе кисти"""
+        preset_name = item.data(Qt.UserRole)
+        print(f"[Smart Panel] Переключаю на кисть: {preset_name}")
+        
+        # Обращаемся к ядру Krita для смены кисти
+        app = krita.Krita.instance()
+        window = app.activeWindow()
+        
+        if window and window.views():
+            # Получаем объект пресета
+            preset = app.resources("preset").get(preset_name)
+            
+            if preset:
+                # Включаем инструмент кисти (на случай, если был выбран ластик или выделение)
+                window.action("paint_tool").trigger()
+                
+                # Применяем пресет к активному холсту (Внимание: API Krita тут бывает капризным)
+                # Если эта строка выдаст ошибку в консоль - скинь мне traceback.
+                try:
+                    view = window.views()[0]
+                    view.setCurrentBrushPreset(preset)
+                except Exception as e:
+                    print(f"Ошибка применения кисти: {e}")
