@@ -1,22 +1,22 @@
 import krita
 from .ui.main_panel import SmartPanelDocker
 
-# Поддержка отладки: принудительно обновляем все подмодули при перезапуске плагина в Krita
+# Принудительно обновляем все подмодули при перезапуске плагина в Krita
 import sys
 from importlib import reload
 
 modules_to_reload = [
-    "smart_brush_panel.core.models",
-    "smart_brush_panel.core.state",
-    "smart_brush_panel.core.parser",
-    "smart_brush_panel.services.preview.cache",
-    "smart_brush_panel.services.preview.renderer",
-    "smart_brush_panel.services.preview.queue",
-    "smart_brush_panel.services.preview.service",
-    "smart_brush_panel.ui.slot",
-    "smart_brush_panel.ui.grid",
-    "smart_brush_panel.ui.settings_popup",
-    "smart_brush_panel.ui.main_panel"
+    "brush_studio.core.models",
+    "brush_studio.core.state",
+    "brush_studio.core.parser",
+    "brush_studio.services.preview.cache",
+    "brush_studio.services.preview.renderer",
+    "brush_studio.services.preview.queue",
+    "brush_studio.services.preview.service",
+    "brush_studio.ui.slot",
+    "brush_studio.ui.grid",
+    "brush_studio.ui.settings_popup",
+    "brush_studio.ui.main_panel"
 ]
 
 for module_name in modules_to_reload:
@@ -36,7 +36,7 @@ class SmartPanelExtension(krita.Extension):
 # Регистрация панели в интерфейсе Krita
 Instance = krita.Krita.instance()
 dock_factory = krita.DockWidgetFactory(
-    "smart_brush_panel", 
+    "brush_studio", 
     krita.DockWidgetFactoryBase.DockRight, 
     SmartPanelDocker
 )

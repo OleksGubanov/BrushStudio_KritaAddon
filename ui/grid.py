@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import QRect
+from PyQt5.QtWidgets import QWidget, QScrollArea
+from PyQt5.QtCore import Qt
 
 class AdaptiveGridWidget(QWidget):
     def __init__(self, state):
@@ -8,12 +8,16 @@ class AdaptiveGridWidget(QWidget):
         self.slots = []
 
     def set_slots(self, slots):
-        for slot in self.slots: slot.deleteLater()
+        for slot in self.slots:
+            slot.setParent(None)
+            slot.deleteLater()
         self.slots = slots
-        for slot in self.slots: slot.setParent(self)
+        for slot in self.slots:
+            slot.setParent(self)
+            slot.show()
         self.recalculate_math()
 
-    def recalculate_math(self):
+    def recalculate_math(self, vp_width=None, vp_height=None):
         if not self.slots: return
 
         base = self.state.appearance.base_icon_size
@@ -41,3 +45,16 @@ class AdaptiveGridWidget(QWidget):
             base_y = (rows - 1 - r) * item_h if flip_y else r * item_h
             
             slot.setGeometry(base_x + padding, base_y + padding, item_w - padding*2, item_h - padding*2)
+
+
+class SlotScrollArea(QScrollArea):
+    """Область прокрутки для сетки кистей."""
+    def __init__(self, grid_widget):
+        super().__init__()
+        self.grid_widget = grid_widget
+        self.setWidget(self.grid_widget)
+        self.setWidgetResizable(False) 
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.grid_widget.recalculate_math(self.viewport().width(), self.viewport().height())
