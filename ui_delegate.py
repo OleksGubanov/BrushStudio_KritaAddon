@@ -16,7 +16,7 @@ class BrushItemDelegate(QStyledItemDelegate):
         is_selected = option.state & QStyle.State_Selected
         is_hovered = option.state & QStyle.State_MouseOver
 
-        # Dense dark background
+        # Slot Background
         if is_selected:
             bg_color = QColor("#2A4365")
         elif is_hovered:
@@ -36,16 +36,25 @@ class BrushItemDelegate(QStyledItemDelegate):
             painter.setPen(QPen(QColor("#63B3ED"), 1))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 3, 3)
 
-        # Icon
+        # Universal Inner Bounds (Maintains aspect ratio positioning for both icons and plus signs)
+        icon_side = min(rect.width(), rect.height()) - 4
+        icon_rect = QRect(0, 0, int(icon_side), int(icon_side))
+        
+        if rect.width() > rect.height():
+            icon_rect.moveCenter(QPoint(rect.left() + int(icon_side / 2) + 2, rect.center().y()))
+        else:
+            icon_rect.moveCenter(QPoint(rect.center().x(), rect.top() + int(icon_side / 2) + 2))
+
+        brush_name = index.data(Qt.UserRole)
         icon = index.data(Qt.DecorationRole)
-        if icon:
-            icon_side = min(rect.width(), rect.height()) - 4
-            icon_rect = QRect(0, 0, int(icon_side), int(icon_side))
-            
-            if rect.width() > rect.height():
-                icon_rect.moveCenter(QPoint(rect.left() + int(icon_side / 2) + 2, rect.center().y()))
-            else:
-                icon_rect.moveCenter(QPoint(rect.center().x(), rect.top() + int(icon_side / 2) + 2))
-            
+        
+        if brush_name and icon and not icon.isNull():
+            # Draw assigned brush icon
             pixmap = icon.pixmap(int(icon_side), int(icon_side))
             painter.drawPixmap(icon_rect, pixmap)
+        else:
+            # Draw subtle '+' for empty slot
+            painter.setPen(QPen(QColor("#555555"), 2))
+            center = icon_rect.center()
+            painter.drawLine(center.x() - 4, center.y(), center.x() + 4, center.y())
+            painter.drawLine(center.x(), center.y() - 4, center.x(), center.y() + 4)
