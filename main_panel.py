@@ -8,6 +8,7 @@ from PyQt5.QtGui import QPalette
 from .core_state import PanelState
 from .ui_grid import AdaptiveGridWidget, SlotScrollArea
 from .ui_slot import BrushSlot
+from .preview_service import generate_brush_mask_sync  # <-- ИМПОРТ НОВОГО РЕНДЕРА
 
 class SmartPanelDocker(QDockWidget):
     def __init__(self):
@@ -124,18 +125,20 @@ class SmartPanelDocker(QDockWidget):
         if force_reload: self.load_slots()
 
     def load_slots(self):
+        """
+        ИЗМЕНЕНО: Загружаем слоты без затирания масок! 
+        BrushSlot сам распакует свою маску из Base64 при инициализации.
+        """
         resources = self.get_presets_map()
         slots_list = []
         
         for i in range(self.state.total_slots):
-            slot = BrushSlot(i, self.state)
-            brush_name = self.state.slot_data.get(str(i))
+            slot = BrushSlot(i, self.state) # Слот загрузит brush_name и stroke_mask внутри себя
+            brush_name = slot.brush_name
             
-            if brush_name and brush_name in resources:
-                preset = resources.get(brush_name)
-                slot.set_brush(brush_name, preset.image())
-            else:
-                slot.set_brush("")
+            # Проверка: если кисть была назначена, но её удалили из Krita
+            if brush_name and resources and (brush_name not in resources):
+                slot.clear_slot()
                 
             slot.clicked.connect(self.on_slot_clicked)
             slot.clear_requested.connect(self.clear_slot)
@@ -144,26 +147,49 @@ class SmartPanelDocker(QDockWidget):
         self.grid.set_slots(slots_list)
 
     def on_slot_clicked(self, idx, brush_name):
+        """
+        ИЗМЕНЕНО: Если слот пустой, назначаем кисть и генерируем мазок на лету.
+        """
         app = krita.Krita.instance()
         window = app.activeWindow()
         if not window or not window.activeView(): return
         
         if brush_name:
+            # Слот имеет кисть -> выбираем её в Krita
             preset = self.get_presets_map().get(brush_name)
-            if preset: window.activeView().setCurrentBrushPreset(preset)
+            if preset: 
+                window.activeView().setCurrentBrushPreset(preset)
         else:
+            # Слот пустой -> назначаем текущую активную кисть
             preset = window.activeView().currentBrushPreset()
             if preset:
-                self.state.slot_data[str(idx)] = preset.name()
-                self.get_presets_map()[preset.name()] = preset
-                self.state.save()
-                self.load_slots()
+                new_brush_name = preset.name()
+                self.get_presets_map()[new_brush_name] = preset
                 
+                # Получаем сам виджет слота, чтобы знать его точные размеры для рендера
+                slot_widget = self.grid.slots[idx]
+                w = max(64, slot_widget.width())
+                h = max(32, slot_widget.height())
+                
+                # 🧨 ВЫЗЫВАЕМ ГЕНЕРАТОР МАСКИ!
+                mask = generate_brush_mask_sync(new_brush_name, w, h)
+                
+                # Если рендер по какой-то причине сорвался, используем стандартную иконку как fallback
+                if mask is None:
+                    print(f"[Brush Studio] ⚠️ Fallback to default preset icon for {new_brush_name}")
+                    mask = preset.image()
+                
+                # Передаем маску в слот. Слот сам конвертирует её в Base64, 
+                # сохранит в state и обновит свой интерфейс.
+                slot_widget.set_brush(new_brush_name, mask)
+
     def clear_slot(self, idx):
-        if str(idx) in self.state.slot_data:
-            del self.state.slot_data[str(idx)]
-            self.state.save()
-            self.load_slots()
+        """
+        ИЗМЕНЕНО: Точечная очистка слота без полной перезагрузки всех слотов.
+        Это значительно улучшает производительность!
+        """
+        if idx < len(self.grid.slots):
+            self.grid.slots[idx].clear_slot()
 
     def build_popup_menu(self):
         self.settings_menu = QMenu(self)

@@ -5,6 +5,7 @@ class PanelState:
     def __init__(self):
         self.settings = QSettings("BrushStudio", "SlotPalette")
         self.load()
+	
 
     def load(self):
         self.mode = self.settings.value("mode", "auto")
