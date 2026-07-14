@@ -1,7 +1,10 @@
-from PyQt5.QtWidgets import (QMenu, QWidget, QFormLayout, QComboBox, QSpinBox, 
-                             QHBoxLayout, QLabel, QGroupBox, QRadioButton, QCheckBox, QWidgetAction)
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import (QMenu, QWidget, QFormLayout, QComboBox, QSpinBox,
+                             QHBoxLayout, QLabel, QGroupBox, QRadioButton, QCheckBox,
+                             QPushButton, QWidgetAction)
 
 class SettingsMenu(QMenu):
+    preview_probe_requested = pyqtSignal()
     """Изолированный интерфейс изменения конфигурации (всплывающее окно)."""
     def __init__(self, parent, state):
         super().__init__(parent)
@@ -41,17 +44,17 @@ class SettingsMenu(QMenu):
         render_box = QHBoxLayout(self.render_group)
         render_box.setContentsMargins(0,0,0,0)
         
-        self.rb_a = QRadioButton("A (Hidden Doc)")
-        self.rb_b = QRadioButton("B (Active Doc)")
-        self.rb_fallback = QRadioButton("Fallback")
+        self.rb_canvas = QRadioButton("Canvas (experimental)")
+        self.rb_disabled = QRadioButton("Disabled")
         
-        if self.state.preview.render_method == "A": self.rb_a.setChecked(True)
-        elif self.state.preview.render_method == "B": self.rb_b.setChecked(True)
-        else: self.rb_fallback.setChecked(True)
+        if self.state.preview.render_method == "canvas": self.rb_canvas.setChecked(True)
+        else: self.rb_disabled.setChecked(True)
         
-        render_box.addWidget(self.rb_a)
-        render_box.addWidget(self.rb_b)
-        render_box.addWidget(self.rb_fallback)
+        render_box.addWidget(self.rb_canvas)
+        render_box.addWidget(self.rb_disabled)
+
+        self.btn_preview_probe = QPushButton("Test current brush")
+        self.btn_preview_probe.clicked.connect(self.preview_probe_requested.emit)
 
         # Чекбоксы видимости
         self.chk_engine = QCheckBox("Show Engine (💧/🖌)")
@@ -70,6 +73,7 @@ class SettingsMenu(QMenu):
         layout.addRow("Grid Origin:", self.chk_flip_x)
         layout.addRow("", self.chk_flip_y)
         layout.addRow("Render Engine:", self.render_group)
+        layout.addRow("Real stroke test:", self.btn_preview_probe)
         layout.addRow("Visibility:", self.chk_engine)
         layout.addRow("", self.chk_icon)
         layout.addRow("", self.chk_stroke)
@@ -88,9 +92,8 @@ class SettingsMenu(QMenu):
         self.spin_asp_h.valueChanged.connect(self.save_settings)
         self.chk_flip_x.stateChanged.connect(self.save_settings)
         self.chk_flip_y.stateChanged.connect(self.save_settings)
-        self.rb_a.toggled.connect(self.save_settings)
-        self.rb_b.toggled.connect(self.save_settings)
-        self.rb_fallback.toggled.connect(self.save_settings)
+        self.rb_canvas.toggled.connect(self.save_settings)
+        self.rb_disabled.toggled.connect(self.save_settings)
         self.chk_engine.stateChanged.connect(self.save_settings)
         self.chk_icon.stateChanged.connect(self.save_settings)
         self.chk_stroke.stateChanged.connect(self.save_settings)
@@ -107,9 +110,7 @@ class SettingsMenu(QMenu):
         self.state.grid.flip_x = self.chk_flip_x.isChecked()
         self.state.grid.flip_y = self.chk_flip_y.isChecked()
         
-        if self.rb_a.isChecked(): self.state.preview.render_method = "A"
-        elif self.rb_b.isChecked(): self.state.preview.render_method = "B"
-        else: self.state.preview.render_method = "fallback"
+        self.state.preview.render_method = "canvas" if self.rb_canvas.isChecked() else "disabled"
             
         self.state.ui.show_engine = self.chk_engine.isChecked()
         self.state.ui.show_icon = self.chk_icon.isChecked()

@@ -19,6 +19,8 @@ class PreviewService(QObject):
     def request_stroke(self, preset_name, metadata, high_priority=False):
         if not preset_name:
             return
+        if not self.renderer.can_render_automatically():
+            return
 
         # 1. Быстрая проверка кэша (мгновенно возвращаем, если есть)
         pixmap = self.cache.get(preset_name, metadata.get("mtime", 0))

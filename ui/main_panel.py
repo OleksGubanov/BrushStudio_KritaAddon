@@ -1,5 +1,7 @@
 import krita
-from PyQt5.QtWidgets import QDockWidget, QWidget, QBoxLayout, QHBoxLayout, QPushButton, QApplication
+from PyQt5.QtWidgets import (QApplication, QBoxLayout, QDialog, QDialogButtonBox,
+                             QDockWidget, QHBoxLayout, QLabel, QMessageBox,
+                             QPushButton, QVBoxLayout, QWidget)
 from PyQt5.QtCore import Qt, QPoint, QEvent
 from PyQt5.QtGui import QPixmap
 
@@ -57,6 +59,7 @@ class SmartPanelDocker(QDockWidget):
         self.setWidget(self.main_widget)
 
         self.settings_menu = SettingsMenu(self, self.state)
+        self.settings_menu.preview_probe_requested.connect(self.run_preview_probe)
         self.load_slots()
 
         self.main_widget.installEventFilter(self)
@@ -138,6 +141,46 @@ class SmartPanelDocker(QDockWidget):
             if slot.data and slot.data.name == preset_name:
                 slot.data.stroke_pixmap = pixmap
                 slot.set_data(slot.data) # Триггерит перерисовку тупого виджета
+
+    def run_preview_probe(self):
+        """Render one real stroke in an isolated temporary Krita document."""
+        app = krita.Krita.instance()
+        window = app.activeWindow()
+        view = window.activeView() if window else None
+        preset = view.currentBrushPreset() if view else None
+        if preset is None:
+            QMessageBox.information(self, "Brush Studio", "Open a document and select a brush first.")
+            return
+
+        pixmap = self.preview_renderer.render_canvas_probe(preset.name())
+        if pixmap is None or pixmap.isNull():
+            QMessageBox.warning(
+                self,
+                "Brush Studio",
+                self.preview_renderer.last_error or "The real canvas preview did not produce an image.",
+            )
+            return
+
+        metadata = PresetMetadataReader.get_metadata(preset.name())
+        self.preview_cache.put(preset.name(), metadata.get("mtime", 0), pixmap)
+        self.on_preview_ready(preset.name(), pixmap)
+        self._show_preview_probe(preset.name(), pixmap)
+
+    def _show_preview_probe(self, preset_name, pixmap):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Brush Studio — real stroke test")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Krita rendered this stroke with: {}".format(preset_name)))
+
+        image = QLabel()
+        image.setPixmap(pixmap.scaled(480, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        layout.addWidget(image)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.exec_()
 
     def on_slot_clicked(self, idx):
         app = krita.Krita.instance()
