@@ -10,14 +10,13 @@ class BrushItemDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Apply user-defined padding (gap between slots)
         pad = self.state.slot_padding
         rect = option.rect.adjusted(pad, pad, -pad, -pad)
         
         is_selected = option.state & QStyle.State_Selected
         is_hovered = option.state & QStyle.State_MouseOver
 
-        # Dense dark background for the slot
+        # Dense dark background
         if is_selected:
             bg_color = QColor("#2A4365")
         elif is_hovered:
@@ -29,7 +28,7 @@ class BrushItemDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, 3, 3) 
         
-        # Outer dark line to simulate Blender-like depth
+        # Border
         painter.setPen(QPen(QColor("#181818"), 1))
         painter.drawRoundedRect(rect, 3, 3)
         
@@ -37,10 +36,9 @@ class BrushItemDelegate(QStyledItemDelegate):
             painter.setPen(QPen(QColor("#63B3ED"), 1))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 3, 3)
 
-        # Icon Drawing Logic (Preserve aspect, snap to start)
+        # Icon
         icon = index.data(Qt.DecorationRole)
         if icon:
-            # Internal icon margin is minimal
             icon_side = min(rect.width(), rect.height()) - 4
             icon_rect = QRect(0, 0, int(icon_side), int(icon_side))
             
