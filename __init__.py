@@ -2,10 +2,10 @@ import krita
 import sys
 import importlib
 
-# 1. Hot Reload System: Reloads modules if they are already in memory
+# 1. Hot Reload System (Updated to reflect new module names)
 modules_to_reload = [
     'smart_brush_panel.core_state',
-    'smart_brush_panel.ui_delegate',
+    'smart_brush_panel.ui_slot',   # Replaces ui_delegate
     'smart_brush_panel.ui_grid',
     'smart_brush_panel.main_panel'
 ]
@@ -21,7 +21,6 @@ DOCKER_ID = 'smart_brush_panel_id'
 
 class SmartPanelDockerFactory(krita.DockWidgetFactory):
     def __init__(self):
-        # Register the docker in Krita
         super().__init__(DOCKER_ID, krita.DockWidgetFactoryBase.DockRight, SmartPanelDocker)
 
 # 3. Add factory to the Krita instance
