@@ -1,10 +1,17 @@
 import logging
 import math
+import time
 
 import krita
 from PyQt5.QtCore import QEvent, QEventLoop, QPoint, QPointF, Qt
 from PyQt5.QtGui import QMouseEvent, QPixmap
 from PyQt5.QtWidgets import QApplication, QWidget
+
+try:
+    from PyQt5.QtTest import QTest
+    HAS_QTEST = True
+except ImportError:
+    HAS_QTEST = False
 
 
 LOGGER = logging.getLogger("brush_studio.preview")
@@ -62,7 +69,10 @@ class CanvasStrokeBackend(BaseBackend):
                 return self._fail("Krita could not create a temporary canvas view.")
 
             window.showView(preview_view)
-            self._process_events()
+            for _ in range(5):
+                self._process_events()
+                time.sleep(0.05)
+                
             self._configure_preview_view(preview_view, preset)
 
             canvas_widget = self._find_canvas_widget(window.qwindow())
@@ -75,7 +85,15 @@ class CanvasStrokeBackend(BaseBackend):
             image = preview_document.projection()
 
             if image.isNull() or not self._has_visible_pixels(image):
-                return self._fail("Krita accepted the test, but the temporary canvas stayed empty.")
+                focus_cls = QApplication.focusWidget().metaObject().className() if QApplication.focusWidget() else "None"
+                target_cls = canvas_widget.property("brush_studio_target_class") or "Unknown"
+                msg = (
+                    f"Empty canvas.\n"
+                    f"Found: {canvas_widget.metaObject().className()} ({canvas_widget.width()}x{canvas_widget.height()})\n"
+                    f"Target: {target_cls}\n"
+                    f"Focus: {focus_cls}"
+                )
+                return self._fail(msg)
 
             return QPixmap.fromImage(image)
         except Exception as error:
@@ -91,11 +109,20 @@ class CanvasStrokeBackend(BaseBackend):
 
     def _configure_preview_view(self, view, preset):
         view.setCurrentBrushPreset(preset)
+        self._wait_for_events(100)  # Wait for Krita to fully load the preset
+        
         view.setBrushSize(self.BRUSH_SIZE)
         view.setPaintingOpacity(1.0)
         view.setPaintingFlow(1.0)
         view.setEraserMode(False)
         view.setDisablePressure(True)
+        
+        try:
+            color = krita.ManagedColor("RGBA", "U8", "")
+            color.setComponents([0.0, 0.0, 0.0, 1.0])
+            view.setForeGroundColor(color)
+        except Exception:
+            pass
 
         canvas = view.canvas()
         canvas.setZoomLevel(1.0)
@@ -115,37 +142,135 @@ class CanvasStrokeBackend(BaseBackend):
     def _paint_stroke(self, widget):
         widget.setFocus(Qt.OtherFocusReason)
         center = widget.rect().center()
+
+        target_widget = widget.childAt(center)
+        if target_widget is None:
+            target_widget = widget
+
         half_length = max(48, min(150, widget.width() // 4))
         start = QPoint(center.x() - half_length, center.y())
         end = QPoint(center.x() + half_length, center.y())
+        
+        start_mapped = target_widget.mapFrom(widget, start)
+        end_mapped = target_widget.mapFrom(widget, end)
+        center_mapped = target_widget.mapFrom(widget, center)
 
+        if HAS_QTEST:
+            self._paint_stroke_qtest(target_widget, start_mapped, end_mapped, center_mapped)
+        else:
+            import sys
+            if sys.platform == 'win32':
+                self._paint_stroke_windows_hardware(widget, start, end, center)
+            else:
+                self._paint_stroke_qt(target_widget, start_mapped, end_mapped, center_mapped)
+                
+        widget.setProperty("brush_studio_target_class", target_widget.metaObject().className())
+
+    def _paint_stroke_qtest(self, widget, start, end, center):
+        QTest.mousePress(widget, Qt.LeftButton, Qt.NoModifier, start)
+        self._wait_for_events(20)
+        
+        steps = 25
+        for i in range(1, steps + 1):
+            progress = i / float(steps)
+            x = int(start.x() + (end.x() - start.x()) * progress)
+            y = int(center.y() + 5 * math.sin(progress * math.tau))
+            QTest.mouseMove(widget, QPoint(x, y))
+            self._wait_for_events(10)
+            
+        QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, end)
+        self._wait_for_events(300)
+
+    def _paint_stroke_windows_hardware(self, widget, start, end, center):
+        import ctypes
+        
+        start_global = widget.mapToGlobal(start)
+        end_global = widget.mapToGlobal(end)
+        center_global = widget.mapToGlobal(center)
+        
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        original_pos = (pt.x, pt.y)
+        
+        MOUSEEVENTF_LEFTDOWN = 0x0002
+        MOUSEEVENTF_LEFTUP = 0x0004
+        
+        ctypes.windll.user32.SetCursorPos(start_global.x(), start_global.y())
+        self._wait_for_events(50)
+        
+        # Super fast stroke to beat human reaction time
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        steps = 15
+        for i in range(1, steps + 1):
+            progress = i / float(steps)
+            x = int(start_global.x() + (end_global.x() - start_global.x()) * progress)
+            y = int(center_global.y() + 5 * math.sin(progress * math.tau))
+            ctypes.windll.user32.SetCursorPos(x, y)
+            time.sleep(0.002)
+            
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        ctypes.windll.user32.SetCursorPos(*original_pos)
+        self._wait_for_events(300)
+
+    def _paint_stroke_qt(self, widget, start, end, center):
         self._send_mouse_event(widget, QEvent.MouseButtonPress, start, Qt.LeftButton, Qt.LeftButton)
-        for step in range(1, 25):
-            progress = step / 24.0
+        self._wait_for_events(50)
+        
+        steps = 25
+        for i in range(1, steps + 1):
+            progress = i / float(steps)
             x = round(start.x() + (end.x() - start.x()) * progress)
             y = round(center.y() + 5 * math.sin(progress * math.tau))
             self._send_mouse_event(widget, QEvent.MouseMove, QPoint(x, y), Qt.NoButton, Qt.LeftButton)
-            self._process_events()
+            self._wait_for_events(10)
+            
         self._send_mouse_event(widget, QEvent.MouseButtonRelease, end, Qt.LeftButton, Qt.NoButton)
-        self._process_events()
+        self._wait_for_events(250)
 
     @staticmethod
     def _send_mouse_event(widget, event_type, point, button, buttons):
-        event = QMouseEvent(event_type, QPointF(point), button, buttons, Qt.NoModifier)
+        global_point = widget.mapToGlobal(point)
+        event = QMouseEvent(
+            event_type, 
+            QPointF(point), 
+            QPointF(global_point), 
+            button, 
+            buttons, 
+            Qt.NoModifier
+        )
         QApplication.sendEvent(widget, event)
 
     @staticmethod
     def _process_events():
         QApplication.processEvents(QEventLoop.AllEvents, 50)
+        
+    @staticmethod
+    def _wait_for_events(ms):
+        end_time = time.time() + ms / 1000.0
+        while time.time() < end_time:
+            QApplication.processEvents(QEventLoop.AllEvents, 10)
+            time.sleep(0.005)
 
     @staticmethod
     def _find_canvas_widget(main_window):
         if main_window is None:
             return None
 
+        focus_widget = QApplication.focusWidget()
+        if focus_widget:
+            w = focus_widget
+            while w:
+                class_name = w.metaObject().className().lower()
+                object_name = w.objectName().lower()
+                if "canvas" in class_name or "canvas" in object_name:
+                    return focus_widget
+                w = w.parentWidget()
+
         candidates = []
         for widget in main_window.findChildren(QWidget):
-            if not widget.isVisible() or widget.width() < 100 or widget.height() < 100:
+            if not widget.isVisible() or widget.width() < 50 or widget.height() < 50:
                 continue
 
             class_name = widget.metaObject().className().lower()
@@ -153,14 +278,22 @@ class CanvasStrokeBackend(BaseBackend):
             if "canvas" not in class_name and "canvas" not in object_name:
                 continue
 
-            score = widget.width() * widget.height()
+            score = 0
             if "kiscanvas2" in class_name:
-                score += 10 ** 9
+                score += 1000
             elif "canvas" in class_name:
-                score += 10 ** 8
+                score += 500
+                
+            if widget.hasFocus():
+                score += 10000
+
             candidates.append((score, widget))
 
-        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+        if candidates:
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            return candidates[0][1]
+            
+        return None
 
     @staticmethod
     def _capture_view_state(view):

@@ -62,7 +62,20 @@ class SmartPanelDocker(QDockWidget):
         self.settings_menu.preview_probe_requested.connect(self.run_preview_probe)
         self.load_slots()
 
+        self.dockLocationChanged.connect(self.on_dock_changed)
+        self.topLevelChanged.connect(self.on_float_changed)
+
         self.main_widget.installEventFilter(self)
+
+    def on_dock_changed(self, area):
+        self.state.current_dock_area = area
+        self.state.save()
+        self.on_widget_resized()
+
+    def on_float_changed(self, is_floating):
+        self.state.is_floating = is_floating
+        self.state.save()
+        self.on_widget_resized()
 
     def eventFilter(self, obj, event):
         if obj == self.main_widget and event.type() == QEvent.Resize:
@@ -80,16 +93,32 @@ class SmartPanelDocker(QDockWidget):
                 self._last_height = h
                 
                 is_wide = w > h
-                eff_layout = "horizontal" if is_wide else "vertical"
-                self.update_layout_architecture(eff_layout)
+                layout_spec = self.state.get_layout_spec(is_wide)
+                self.update_layout_architecture(layout_spec)
         finally:
             self._updating = False
             self._check_visible_slots()  # Проверяем видимость после ресайза
 
-    def update_layout_architecture(self, eff_layout):
-        direction = QBoxLayout.LeftToRight if eff_layout == "horizontal" else QBoxLayout.TopToBottom
+    def update_layout_architecture(self, layout_spec):
+        direction = QBoxLayout.LeftToRight if layout_spec.flow_axis == "horizontal" else QBoxLayout.TopToBottom
         if self.main_layout.direction() != direction:
             self.main_layout.setDirection(direction)
+
+        if layout_spec.bar_position == "Top":
+            self.main_layout.setDirection(QBoxLayout.TopToBottom)
+            self.control_layout.setDirection(QBoxLayout.LeftToRight)
+        elif layout_spec.bar_position == "Bottom":
+            self.main_layout.setDirection(QBoxLayout.BottomToTop)
+            self.control_layout.setDirection(QBoxLayout.LeftToRight)
+        elif layout_spec.bar_position == "Left":
+            self.main_layout.setDirection(QBoxLayout.LeftToRight)
+            self.control_layout.setDirection(QBoxLayout.TopToBottom)
+        elif layout_spec.bar_position == "Right":
+            self.main_layout.setDirection(QBoxLayout.RightToLeft)
+            self.control_layout.setDirection(QBoxLayout.TopToBottom)
+
+        self.scroll_area.apply_layout(layout_spec)
+        self.grid.update_layout(layout_spec)
 
     def load_slots(self):
         self.preview_service.cancel_all() # Отменяем генерацию при обновлении сетки

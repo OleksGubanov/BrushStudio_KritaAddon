@@ -95,7 +95,13 @@ class PanelState:
             }
             for legacy_key, current_key in key_mapping.items():
                 if legacy.contains(legacy_key):
-                    self._settings.setValue(current_key, legacy.value(legacy_key))
+                    val = legacy.value(legacy_key)
+                    if legacy_key == "slot_data" and not isinstance(val, str):
+                        try:
+                            val = json.dumps(val)
+                        except Exception:
+                            val = str(val)
+                    self._settings.setValue(current_key, val)
 
         self._settings.setValue("schema_version", self.SCHEMA_VERSION)
         self._settings.sync()
@@ -107,9 +113,12 @@ class PanelState:
         self.preview = PreviewSettings(self._settings)
         self.ui = UISettings(self._settings)
 
+        self.current_dock_area = int(self._settings.value("current_dock_area", int(Qt.RightDockWidgetArea)))
+        self.is_floating = self._settings.value("is_floating", False, type=bool)
+
         slots_json = self._settings.value("slot_data", "{}")
         try:
-            self.slot_data = json.loads(slots_json)
+            self.slot_data = json.loads(str(slots_json))
         except (TypeError, ValueError):
             self.slot_data = {}
 
@@ -134,9 +143,11 @@ class PanelState:
         self._settings.setValue("show_icon", self.ui.show_icon)
         self._settings.setValue("show_stroke", self.ui.show_stroke)
         self._settings.setValue("slot_data", json.dumps(self.slot_data))
+        self._settings.setValue("current_dock_area", int(self.current_dock_area))
+        self._settings.setValue("is_floating", self.is_floating)
         self._settings.sync()
 
-    def get_layout_spec(self, is_floating, dock_area, is_wide):
+    def get_layout_spec(self, is_wide):
         if self.appearance.mode == "manual":
             return LayoutSpec(
                 self.layout.manual_flow_axis,
@@ -144,11 +155,12 @@ class PanelState:
                 self.layout.manual_bar_position,
             )
 
-        if is_floating:
+        if self.is_floating:
             if is_wide:
                 return LayoutSpec("horizontal", self.layout.auto_horizontal_anchor, "Top")
             return LayoutSpec("vertical", self.layout.auto_vertical_anchor, "Left")
 
+        dock_area = self.current_dock_area
         if dock_area == Qt.TopDockWidgetArea:
             return LayoutSpec("horizontal", self.layout.auto_horizontal_anchor, "Top")
         if dock_area == Qt.BottomDockWidgetArea:
