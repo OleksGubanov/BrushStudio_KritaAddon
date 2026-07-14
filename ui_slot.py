@@ -1,9 +1,27 @@
 import os
 import tempfile
 import krita
+import base64
 from PyQt5.QtWidgets import QWidget, QMenu, QAction
-from PyQt5.QtCore import Qt, pyqtSignal, QRect, QPoint, QSize
+from PyQt5.QtCore import Qt, QBuffer, QIODevice, pyqtSignal, QRect, QPoint, QSize
 from PyQt5.QtGui import QPainter, QColor, QPen, QPalette, QPixmap, QImage
+
+def image_to_base64(image):
+    if not image or image.isNull(): return ""
+    buffer = QBuffer()
+    buffer.open(QIODevice.WriteOnly)
+    image.save(buffer, "PNG")
+    return base64.b64encode(buffer.data()).decode("utf-8")
+
+def base64_to_image(b64_string):
+    if not b64_string: return None
+    try:
+        image_data = base64.b64decode(b64_string)
+        image = QImage()
+        image.loadFromData(image_data, "PNG")
+        return image
+    except Exception:
+        return None
 
 def recolor_mask(mask_image, color):
     """
@@ -84,48 +102,73 @@ class BrushSlot(QWidget):
         
         self.brush_name = ""
         self.icon_pixmap = None
-        self.stroke_mask = None  # Сюда прилетает Ч/Б маска
+        self.stroke_mask = None 
         self.is_hovered = False
-        
-        # Защита от спама рендера при динамическом ресайзе панели
         self._last_requested_size = QSize(0, 0)
         
         self.setToolTip("Empty Slot\nLeft-click: Assign active brush")
         
         if self.preview_service:
             self.preview_service.preview_generated.connect(self._on_preview_generated)
+            
+        # Загружаем кешированные данные при инициализации
+        self.load_from_state()
 
-    def set_brush(self, name, preset_image=None):
-        """
-        Задает кисть для текущего слота и инициирует генерацию мазка.
-        """
+    def load_from_state(self):
+        slot_key = str(self.index)
+        data = self.state.slot_data.get(slot_key)
+        
+        if isinstance(data, dict):
+            self.brush_name = data.get("brush_name", "")
+            mask_b64 = data.get("stroke_mask_b64", "")
+            if mask_b64:
+                self.stroke_mask = base64_to_image(mask_b64)
+        elif isinstance(data, str):
+            # Поддержка старого формата, где хранилось только имя
+            self.brush_name = data
+            
+        if self.brush_name:
+            try:
+                preset = krita.Krita.instance().resources("preset").get(self.brush_name)
+                if preset:
+                    self.icon_pixmap = QPixmap.fromImage(preset.image())
+            except Exception:
+                pass
+        self.update()
+
+    def set_brush(self, name, preset_image=None, stroke_mask=None):
         self.brush_name = name
+        self.stroke_mask = stroke_mask
+        
         if name:
             if preset_image is not None:
                 self.icon_pixmap = QPixmap.fromImage(preset_image)
             else:
                 try:
-                    all_presets = krita.Krita.instance().resources("preset")
-                    preset = all_presets.get(name)
-                    if preset:
-                        self.icon_pixmap = QPixmap.fromImage(preset.image())
+                    preset = krita.Krita.instance().resources("preset").get(name)
+                    if preset: self.icon_pixmap = QPixmap.fromImage(preset.image())
                 except Exception:
                     self.icon_pixmap = None
-                    
             self.setToolTip(f"{name}\nRight-click to clear / test")
-            self.stroke_mask = None
-            
-            # Асинхронный запрос к сервису
-            if self.preview_service:
-                w = max(100, self.width())
-                h = max(30, self.height())
-                self._last_requested_size = QSize(w, h)
-                self.preview_service.request_preview(name, w, h)
         else:
             self.icon_pixmap = None
             self.stroke_mask = None
             self.setToolTip("Empty Slot\nLeft-click: Assign active brush")
             
+        # Сохранение в state
+        slot_key = str(self.index)
+        if name:
+            if slot_key not in self.state.slot_data or not isinstance(self.state.slot_data[slot_key], dict):
+                self.state.slot_data[slot_key] = {}
+            self.state.slot_data[slot_key]["brush_name"] = name
+            
+            if stroke_mask and not stroke_mask.isNull():
+                self.state.slot_data[slot_key]["stroke_mask_b64"] = image_to_base64(stroke_mask)
+        else:
+            if slot_key in self.state.slot_data:
+                del self.state.slot_data[slot_key]
+                
+        self.state.save()
         self.update()
 
     def _on_preview_generated(self, brush_name, mask_image):
@@ -185,21 +228,14 @@ class BrushSlot(QWidget):
         menu.exec_(global_pos)
 
     def _force_sync_render(self):
-        if not self.brush_name:
-            return
-            
-        w = max(100, self.width())
-        h = max(30, self.height())
-        
-        # Импортируем нашу грязную функцию
+        if not self.brush_name: return
+        w, h = max(100, self.width()), max(30, self.height())
         from .preview_service import generate_brush_mask_sync
         
-        # Вызываем её
         mask = generate_brush_mask_sync(self.brush_name, w, h)
-        
         if mask:
-            self.stroke_mask = mask
-            self.update()
+            # Сохраняем кисть и свежую маску
+            self.set_brush(self.brush_name, stroke_mask=mask)
 
     def paintEvent(self, event):
         painter = QPainter(self)

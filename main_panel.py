@@ -128,14 +128,12 @@ class SmartPanelDocker(QDockWidget):
         slots_list = []
         
         for i in range(self.state.total_slots):
+            # Слот сам прочитает brush_name и stroke_mask внутри __init__
             slot = BrushSlot(i, self.state)
-            brush_name = self.state.slot_data.get(str(i))
             
-            if brush_name and brush_name in resources:
-                preset = resources.get(brush_name)
-                slot.set_brush(brush_name, preset.image())
-            else:
-                slot.set_brush("")
+            # Проверяем, существует ли кисть в Krita, если она назначена в слоте
+            if slot.brush_name and slot.brush_name not in resources:
+                slot.set_brush("") # Очищаем слот, если кисть удалили
                 
             slot.clicked.connect(self.on_slot_clicked)
             slot.clear_requested.connect(self.clear_slot)
@@ -152,12 +150,22 @@ class SmartPanelDocker(QDockWidget):
             preset = self.get_presets_map().get(brush_name)
             if preset: window.activeView().setCurrentBrushPreset(preset)
         else:
+            # Назначаем пустой слот
             preset = window.activeView().currentBrushPreset()
             if preset:
-                self.state.slot_data[str(idx)] = preset.name()
-                self.get_presets_map()[preset.name()] = preset
-                self.state.save()
-                self.load_slots()
+                new_name = preset.name()
+                self.get_presets_map()[new_name] = preset
+                
+                # Запускаем рендер сразу при добавлении кисти
+                from .preview_service import generate_brush_mask_sync
+                slot_widget = self.grid.slots[idx]
+                w = max(100, slot_widget.width())
+                h = max(30, slot_widget.height())
+                
+                mask = generate_brush_mask_sync(new_name, w, h)
+                
+                # Передаем маску в слот, он сам ее закодирует и сохранит
+                slot_widget.set_brush(new_name, preset.image(), stroke_mask=mask)
                 
     def clear_slot(self, idx):
         if str(idx) in self.state.slot_data:
