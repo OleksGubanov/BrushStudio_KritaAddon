@@ -1,8 +1,8 @@
-# ui_grid.py
 from PyQt5.QtWidgets import QWidget, QScrollArea
 from PyQt5.QtCore import Qt
 
 class AdaptiveGridWidget(QWidget):
+    """Контейнер, пересчитывающий положение слотов на базе выбранного квадранта."""
     def __init__(self, state):
         super().__init__()
         self.state = state
@@ -29,13 +29,19 @@ class AdaptiveGridWidget(QWidget):
         base = self.state.base_icon_size
         aw = max(1.0, float(self.state.aspect_w))
         ah = max(1.0, float(self.state.aspect_h))
+        padding = self.state.slot_padding
         
-        if aw >= ah: item_w, item_h = int(base * (aw / ah)), base
-        else: item_w, item_h = base, int(base * (ah / aw))
+        if aw >= ah: 
+            item_w, item_h = int(base * (aw / ah)), base
+        else: 
+            item_w, item_h = base, int(base * (ah / aw))
+
+        item_w += padding * 2
+        item_h += padding * 2
 
         total = len(self.slots)
         div = max(1, self.state.main_divider)
-        corner = self.state.grid_corner # 'LT', 'RT', 'LB', 'RB'
+        corner = self.state.grid_corner  # 'LT', 'RT', 'LB', 'RB'
 
         if self.eff_layout == "vertical":
             eff_cols = div 
@@ -44,15 +50,14 @@ class AdaptiveGridWidget(QWidget):
             self.setFixedSize(grid_w, grid_h)
 
             for i, slot in enumerate(self.slots):
-                # Базовые координаты (от левого верхнего угла)
                 base_x = (i % eff_cols) * item_w
                 base_y = (i // eff_cols) * item_h
                 
-                # Инвертируем в зависимости от угла
+                # Трансформация осей под выбранный угол привязки
                 final_x = (grid_w - item_w - base_x) if 'R' in corner else base_x
                 final_y = (grid_h - item_h - base_y) if 'B' in corner else base_y
                 
-                slot.setGeometry(final_x, final_y, item_w, item_h)
+                slot.setGeometry(final_x + padding, final_y + padding, item_w - padding*2, item_h - padding*2)
         else:
             eff_rows = div 
             cols = (total + eff_rows - 1) // eff_rows
@@ -66,9 +71,10 @@ class AdaptiveGridWidget(QWidget):
                 final_x = (grid_w - item_w - base_x) if 'R' in corner else base_x
                 final_y = (grid_h - item_h - base_y) if 'B' in corner else base_y
                 
-                slot.setGeometry(final_x, final_y, item_w, item_h)
+                slot.setGeometry(final_x + padding, final_y + padding, item_w - padding*2, item_h - padding*2)
 
 class SlotScrollArea(QScrollArea):
+    """Область прокрутки для сетки кистей."""
     def __init__(self, grid_widget):
         super().__init__()
         self.grid_widget = grid_widget

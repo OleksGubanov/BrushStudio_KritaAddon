@@ -1,27 +1,29 @@
-# __init__.py
 import krita
+from .ui.main_panel import SmartPanelDocker
+
+# Поддержка автоматического обновления модулей при разработке
 import sys
-import importlib
+from importlib import reload
+if "smart_brush_panel.core.state" in sys.modules:
+    reload(sys.modules["smart_brush_panel.core.state"])
+    reload(sys.modules["smart_brush_panel.core.parser"])
+    reload(sys.modules["smart_brush_panel.services.preview"])
+    reload(sys.modules["smart_brush_panel.ui.slot"])
+    reload(sys.modules["smart_brush_panel.ui.grid"])
+    reload(sys.modules["smart_brush_panel.ui.settings_popup"])
+    reload(sys.modules["smart_brush_panel.ui.main_panel"])
 
-modules_to_reload = [
-    'smart_brush_panel.core_state',
-    'smart_brush_panel.ui_slot',   
-    'smart_brush_panel.ui_grid',
-    'smart_brush_panel.preview_service',
-    'smart_brush_panel.main_panel'       # main_panel всегда идет последним
-]
+class SmartPanelExtension(krita.Extension):
+    def __init__(self, parent):
+        super().__init__(parent)
 
-for mod in modules_to_reload:
-    if mod in sys.modules:
-        importlib.reload(sys.modules[mod])
+    def setup(self):
+        pass
 
-from .main_panel import SmartPanelDocker
+    def createActions(self, window):
+        pass
 
-DOCKER_ID = 'smart_brush_panel_id'
-
-class SmartPanelDockerFactory(krita.DockWidgetFactory):
-    def __init__(self):
-        super().__init__(DOCKER_ID, krita.DockWidgetFactoryBase.DockRight, SmartPanelDocker)
-
-app = krita.Krita.instance()
-app.addDockWidgetFactory(SmartPanelDockerFactory())
+# Регистрация панели в интерфейсе Krita
+Instance = krita.Krita.instance()
+dock_factory = krita.DockWidgetFactory("smart_brush_panel", krita.DockWidgetFactoryBase.DockRight, SmartPanelDocker)
+Instance.addDockWidgetFactory(dock_factory)
