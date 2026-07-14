@@ -103,14 +103,19 @@ class SmartPanelDocker(QDockWidget):
         self.load_slots()
 
     def load_slots(self):
-        """Generates empty slots and populates assigned brushes"""
         self.grid.clear()
         app = krita.Krita.instance()
         resources = app.resources("preset")
         
+        # Получаем текущий размер ячейки из нашего кастомного списка
+        grid_size = self.grid.gridSize() 
+        
         for i in range(self.state.total_slots):
             item = QListWidgetItem()
-            item.setData(Qt.UserRole + 1, i) # Store logical index
+            item.setData(Qt.UserRole + 1, i)
+            
+            # ЗАСТАВЛЯЕМ элемент занимать место, даже если он пустой
+            item.setSizeHint(grid_size) 
             
             brush_name = self.state.slot_data.get(str(i))
             if brush_name and brush_name in resources:
