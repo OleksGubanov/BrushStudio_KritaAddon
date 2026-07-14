@@ -1,3 +1,4 @@
+# core_state.py
 import json
 from PyQt5.QtCore import QSettings, Qt
 
@@ -11,33 +12,38 @@ class PanelState:
         
         self.auto_vert_docks = self.settings.value("auto_vert_docks", "Left")
         self.auto_horiz_docks = self.settings.value("auto_horiz_docks", "Top")
-        
-        # Priority bar positions for auto mode
         self.auto_bar_vert = self.settings.value("auto_bar_vert", "Top")
         self.auto_bar_horiz = self.settings.value("auto_bar_horiz", "Left")
         
         self.manual_layout = self.settings.value("manual_layout", "vertical")
         self.manual_anchor = self.settings.value("manual_anchor", "Left")
         self.manual_bar = self.settings.value("manual_bar", "Top")
+        
+        # НОВАЯ НАСТРОЙКА УГЛА СЕТКИ (Left-Top по умолчанию)
+        self.grid_corner = self.settings.value("grid_corner", "LT")
+        
+        # НОВЫЕ НАСТРОЙКИ ДЛЯ РЕНДЕРА И ДВИЖКА
+        self.show_engine = self.settings.value("show_engine", True, type=bool)
+        self.render_method = self.settings.value("render_method", "A")
 
         self.total_slots = int(self.settings.value("total_slots", 44))
         self.main_divider = int(self.settings.value("main_divider", 4))
         self.base_icon_size = int(self.settings.value("base_icon_size", 32))
-        self.aspect_w = float(self.settings.value("aspect_w", 4.0))
+        self.aspect_w = float(self.settings.value("aspect_w", 1.0))
         self.aspect_h = float(self.settings.value("aspect_h", 1.0))
         self.slot_padding = int(self.settings.value("slot_padding", 2))
         
-        # Visual Elements
-        self.show_icon = self.settings.value("show_icon", "true") == "true"
-        self.show_stroke = self.settings.value("show_stroke", "false") == "true"
-        self.show_tip = self.settings.value("show_tip", "false") == "true"
+        self.show_icon = self.settings.value("show_icon", True, type=bool)
+        self.show_stroke = self.settings.value("show_stroke", True, type=bool)
+        self.show_tip = self.settings.value("show_tip", False, type=bool)
         
-        self.current_dock_area = Qt.DockWidgetArea(int(self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))))
-        self.is_floating = self.settings.value("is_floating", "false") == "true"
-        
-        slots_json = self.settings.value("slot_data", "{}")
-        try: self.slot_data = json.loads(slots_json)
-        except: self.slot_data = {}
+        try:
+            self.slot_data = json.loads(self.settings.value("slot_data", "{}"))
+        except json.JSONDecodeError:
+            self.slot_data = {}
+            
+        self.current_dock_area = self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))
+        self.is_floating = self.settings.value("is_floating", False, type=bool)
 
     def save(self):
         self.settings.setValue("mode", self.mode)
@@ -60,6 +66,9 @@ class PanelState:
         self.settings.setValue("slot_data", json.dumps(self.slot_data))
         self.settings.setValue("current_dock_area", int(self.current_dock_area))
         self.settings.setValue("is_floating", self.is_floating)
+        self.settings.setValue("grid_corner", self.grid_corner)
+        self.settings.setValue("show_engine", self.show_engine)
+        self.settings.setValue("render_method", self.render_method)
 
     def get_effective_state(self, is_wide=False):
         if self.mode == "manual":
