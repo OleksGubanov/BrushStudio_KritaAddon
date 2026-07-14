@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect, QPoint
-from PyQt5.QtGui import QPainter, QColor, QPen
+from PyQt5.QtGui import QPainter, QColor, QPen, QPalette
 
 class BrushItemDelegate(QStyledItemDelegate):
     def __init__(self, state_manager):
@@ -16,27 +16,27 @@ class BrushItemDelegate(QStyledItemDelegate):
         is_selected = option.state & QStyle.State_Selected
         is_hovered = option.state & QStyle.State_MouseOver
 
-        # Slot Background
+        palette = option.palette
         if is_selected:
-            bg_color = QColor("#2A4365")
+            bg_color = palette.color(QPalette.Highlight)
         elif is_hovered:
-            bg_color = QColor("#404040")
+            bg_color = palette.color(QPalette.AlternateBase)
         else:
-            bg_color = QColor("#2D2D2D")
+            bg_color = palette.color(QPalette.Window)
             
         painter.setBrush(bg_color)
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, 3, 3) 
         
-        # Border
-        painter.setPen(QPen(QColor("#181818"), 1))
+        border_color = palette.color(QPalette.Dark)
+        painter.setPen(QPen(border_color, 1))
         painter.drawRoundedRect(rect, 3, 3)
         
         if is_selected:
-            painter.setPen(QPen(QColor("#63B3ED"), 1))
+            highlight_color = palette.color(QPalette.Highlight)
+            painter.setPen(QPen(highlight_color, 1))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 3, 3)
 
-        # Universal Inner Bounds (Maintains aspect ratio positioning for both icons and plus signs)
         icon_side = min(rect.width(), rect.height()) - 4
         icon_rect = QRect(0, 0, int(icon_side), int(icon_side))
         
@@ -49,12 +49,10 @@ class BrushItemDelegate(QStyledItemDelegate):
         icon = index.data(Qt.DecorationRole)
         
         if brush_name and icon and not icon.isNull():
-            # Draw assigned brush icon
             pixmap = icon.pixmap(int(icon_side), int(icon_side))
             painter.drawPixmap(icon_rect, pixmap)
         else:
-            # Draw subtle '+' for empty slot
-            painter.setPen(QPen(QColor("#555555"), 2))
+            painter.setPen(QPen(palette.color(QPalette.Text), 2))
             center = icon_rect.center()
             painter.drawLine(center.x() - 4, center.y(), center.x() + 4, center.y())
             painter.drawLine(center.x(), center.y() - 4, center.x(), center.y() + 4)

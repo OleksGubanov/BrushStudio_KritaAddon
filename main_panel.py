@@ -3,8 +3,8 @@ from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, QVBo
                              QPushButton, QComboBox, QLabel, QSpinBox, 
                              QMenu, QAction, QWidgetAction, QListWidgetItem, 
                              QFormLayout, QApplication)
-from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtCore import Qt, QPoint, QEvent
+from PyQt5.QtGui import QIcon, QPixmap, QPalette
 
 from .core_state import PanelState
 from .ui_grid import AdaptiveListWidget
@@ -15,6 +15,10 @@ class SmartPanelDocker(QDockWidget):
         self.setWindowTitle("Brush Studio")
         self.state = PanelState()
         
+        self._last_width = 0
+        self._last_height = 0
+        self._updating = False  # Флаг для предотвращения рекурсии в resizeEvent
+        
         self.main_widget = QWidget()
         self.main_layout = QBoxLayout(QBoxLayout.TopToBottom)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -22,14 +26,12 @@ class SmartPanelDocker(QDockWidget):
         
         # --- Settings Bar ---
         self.top_bar = QWidget()
-        self.top_bar.setStyleSheet("background-color: #202020;") 
         self.bar_layout = QBoxLayout(QBoxLayout.LeftToRight)
         self.bar_layout.setContentsMargins(2, 2, 2, 2)
         self.bar_layout.setSpacing(0)
         
         self.btn_settings = QPushButton("⚙")
         self.btn_settings.setFixedSize(20, 20)
-        self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 14px; } QPushButton:hover { color: white; }")
         self.btn_settings.clicked.connect(self.show_popup_settings)
         
         self.bar_layout.addStretch()
@@ -37,7 +39,6 @@ class SmartPanelDocker(QDockWidget):
         self.top_bar.setLayout(self.bar_layout)
         
         # --- Anchor Grid Container ---
-        # A single layout with stretch natively pushes the grid to any chosen edge
         self.anchor_widget = QWidget()
         self.anchor_layout = QBoxLayout(QBoxLayout.LeftToRight)
         self.anchor_layout.setContentsMargins(0,0,0,0)
@@ -47,7 +48,6 @@ class SmartPanelDocker(QDockWidget):
         self.grid = AdaptiveListWidget(self.state)
         self.grid.itemClicked.connect(self.on_slot_clicked)
         
-        # Context Menu for Right-Click clearing
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self.on_context_menu)
         
@@ -63,17 +63,73 @@ class SmartPanelDocker(QDockWidget):
         self.dockLocationChanged.connect(self.on_dock_changed)
         self.topLevelChanged.connect(self.on_float_changed)
         
+        self.update_theme()
+        # apply_architecture будет вызван при первом resizeEvent
+
+    def update_theme(self):
+        palette = QApplication.palette()
+        bg_color = palette.color(QPalette.Window).name()
+        text_color = palette.color(QPalette.WindowText).name()
+        hover_color = palette.color(QPalette.Highlight).name()
+        
+        self.top_bar.setStyleSheet(f"background-color: {bg_color}; color: {text_color};")
+        
+        self.btn_settings.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {text_color};
+                border: none;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                color: {hover_color};
+            }}
+        """)
+        
+        menu_bg = palette.color(QPalette.Window).name()
+        menu_text = palette.color(QPalette.WindowText).name()
+        menu_highlight = palette.color(QPalette.Highlight).name()
+        self.settings_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {menu_bg};
+                border: 1px solid {palette.color(QPalette.Dark).name()};
+                border-radius: 6px;
+                color: {menu_text};
+            }}
+            QMenu::item:selected {{
+                background-color: {menu_highlight};
+            }}
+        """)
+        
+        self.grid.viewport().update()
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.PaletteChange:
+            self.update_theme()
+        super().changeEvent(event)
+
+    def resizeEvent(self, event):
+        if self._updating:
+            super().resizeEvent(event)
+            return
+        
+        self._last_width = event.size().width()
+        self._last_height = event.size().height()
+        
+        # Вызываем apply_architecture с защитой от рекурсии
+        self._updating = True
         self.apply_architecture()
+        self._updating = False
+        
+        super().resizeEvent(event)
 
     def apply_architecture(self):
-        """Dynamically reverses layouts to push the grid tightly into the requested corner"""
-        w = self.main_widget.width()
-        h = self.main_widget.height()
+        w = self._last_width if self._last_width > 0 else self.main_widget.width()
+        h = self._last_height if self._last_height > 0 else self.main_widget.height()
         is_wide = w > h
         
         eff_layout, eff_anchor, eff_bar = self.state.get_effective_state(is_wide)
         
-        # 1. Update Grid Anchor (Push Left/Right/Top/Bottom via Stretches)
         if eff_layout == "vertical":
             if eff_anchor == "Left":
                 self.anchor_layout.setDirection(QBoxLayout.LeftToRight)
@@ -85,7 +141,6 @@ class SmartPanelDocker(QDockWidget):
             else:
                 self.anchor_layout.setDirection(QBoxLayout.BottomToTop)
 
-        # 2. Update Bar Position
         if eff_bar == "Top":
             self.main_layout.setDirection(QBoxLayout.TopToBottom)
             self.bar_layout.setDirection(QBoxLayout.LeftToRight)
@@ -107,14 +162,11 @@ class SmartPanelDocker(QDockWidget):
         app = krita.Krita.instance()
         resources = app.resources("preset")
         
-        # Получаем текущий размер ячейки из нашего кастомного списка
         grid_size = self.grid.gridSize() 
         
         for i in range(self.state.total_slots):
             item = QListWidgetItem()
             item.setData(Qt.UserRole + 1, i)
-            
-            # ЗАСТАВЛЯЕМ элемент занимать место, даже если он пустой
             item.setSizeHint(grid_size) 
             
             brush_name = self.state.slot_data.get(str(i))
@@ -139,13 +191,10 @@ class SmartPanelDocker(QDockWidget):
         if not window or not window.activeView(): return
         
         if brush_name:
-            # Slot is full -> Select the brush
-            action = app.action('KritaShape/KritaToolFreehand')
-            if action: action.trigger()
             preset = app.resources("preset").get(brush_name)
-            if preset: window.activeView().setCurrentBrushPreset(preset)
+            if preset:
+                window.activeView().setCurrentBrushPreset(preset)
         else:
-            # Slot is empty -> Assign the currently selected brush
             preset = window.activeView().currentBrushPreset()
             if preset:
                 self.state.slot_data[str(idx)] = preset.name()
@@ -153,7 +202,6 @@ class SmartPanelDocker(QDockWidget):
                 self.load_slots()
                 
     def on_context_menu(self, pos):
-        """Right click context menu to clear slots"""
         item = self.grid.itemAt(pos)
         if not item: return
         idx = item.data(Qt.UserRole + 1)
@@ -161,7 +209,7 @@ class SmartPanelDocker(QDockWidget):
         
         if brush_name:
             menu = QMenu(self)
-            menu.setStyleSheet("QMenu { background-color: #2D2D2D; border: 1px solid #555; color: white; padding: 4px; } QMenu::item:selected { background-color: #3D5A80; }")
+            menu.setStyleSheet(self.settings_menu.styleSheet())
             clear_action = QAction("Clear Slot", self)
             clear_action.triggered.connect(lambda: self.clear_slot(idx))
             menu.addAction(clear_action)
@@ -175,7 +223,6 @@ class SmartPanelDocker(QDockWidget):
 
     def build_popup_menu(self):
         self.settings_menu = QMenu(self)
-        self.settings_menu.setStyleSheet("QMenu { background-color: #2D2D2D; border: 1px solid #555; border-radius: 6px; color: #EEE; }")
         
         settings_widget = QWidget()
         settings_widget.setMinimumWidth(280)
@@ -187,16 +234,13 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_mode.addItems(["auto", "manual"])
         self.cmb_mode.setCurrentText(self.state.mode)
         
-        # Auto Mode Options
         self.cmb_auto_vert = QComboBox(); self.cmb_auto_vert.addItems(["Left", "Right"]); self.cmb_auto_vert.setCurrentText(self.state.auto_vert_docks)
         self.cmb_auto_horiz = QComboBox(); self.cmb_auto_horiz.addItems(["Top", "Bottom"]); self.cmb_auto_horiz.setCurrentText(self.state.auto_horiz_docks)
         
-        # Manual Mode Options
         self.cmb_layout = QComboBox(); self.cmb_layout.addItems(["vertical", "horizontal"]); self.cmb_layout.setCurrentText(self.state.manual_layout)
         self.cmb_anchor = QComboBox(); self.cmb_anchor.addItems(["Left", "Right", "Top", "Bottom"]); self.cmb_anchor.setCurrentText(self.state.manual_anchor)
         self.cmb_bar = QComboBox(); self.cmb_bar.addItems(["Top", "Bottom", "Left", "Right"]); self.cmb_bar.setCurrentText(self.state.manual_bar)
         
-        # Shared Generation & Size Options
         self.spin_slots = QSpinBox(); self.spin_slots.setRange(1, 200); self.spin_slots.setValue(self.state.total_slots)
         self.spin_divider = QSpinBox(); self.spin_divider.setRange(1, 20); self.spin_divider.setValue(self.state.main_divider)
         self.spin_base = QSpinBox(); self.spin_base.setRange(8, 256); self.spin_base.setSingleStep(2); self.spin_base.setValue(self.state.base_icon_size)
@@ -208,7 +252,6 @@ class SmartPanelDocker(QDockWidget):
         self.spin_asp_h = QSpinBox(); self.spin_asp_h.setRange(1, 100); self.spin_asp_h.setValue(int(self.state.aspect_h))
         aspect_layout.addWidget(self.spin_asp_w); aspect_layout.addWidget(QLabel(":")); aspect_layout.addWidget(self.spin_asp_h)
         
-        # Labels for toggling visibility
         self.lbl_auto_v = QLabel("Auto Anchor (Vert Docks):"); self.lbl_auto_h = QLabel("Auto Anchor (Horiz Docks):")
         self.lbl_man_l = QLabel("Manual Layout:"); self.lbl_man_a = QLabel("Manual Cross-Anchor:"); self.lbl_man_b = QLabel("Manual Settings Bar:")
         
@@ -231,7 +274,6 @@ class SmartPanelDocker(QDockWidget):
         
         self.update_settings_visibility()
         
-        # Connections
         self.cmb_mode.currentTextChanged.connect(self.on_settings_changed)
         self.cmb_auto_vert.currentTextChanged.connect(self.on_settings_changed)
         self.cmb_auto_horiz.currentTextChanged.connect(self.on_settings_changed)
