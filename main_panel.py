@@ -15,9 +15,8 @@ class SmartPanelDocker(QDockWidget):
         self.setWindowTitle("Brush Studio")
         self.state = PanelState()
         
-        self._last_width = 0
-        self._last_height = 0
-        self._updating = False  # Флаг для предотвращения рекурсии в resizeEvent
+        # Local cache for brush resources to drastically speed up calculations
+        self._presets_cache = {}
         
         self.main_widget = QWidget()
         self.main_layout = QBoxLayout(QBoxLayout.TopToBottom)
@@ -48,6 +47,7 @@ class SmartPanelDocker(QDockWidget):
         self.grid = AdaptiveListWidget(self.state)
         self.grid.itemClicked.connect(self.on_slot_clicked)
         
+        # Context Menu for Right-Click clearing
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self.on_context_menu)
         
@@ -63,105 +63,112 @@ class SmartPanelDocker(QDockWidget):
         self.dockLocationChanged.connect(self.on_dock_changed)
         self.topLevelChanged.connect(self.on_float_changed)
         
+        # Initialize themes and architecture layouts
         self.update_theme()
-        # apply_architecture будет вызван при первом resizeEvent
+        self.apply_architecture(force_reload=True)
 
-    def update_theme(self):
-        palette = QApplication.palette()
-        bg_color = palette.color(QPalette.Window).name()
-        text_color = palette.color(QPalette.WindowText).name()
-        hover_color = palette.color(QPalette.Highlight).name()
-        
-        self.top_bar.setStyleSheet(f"background-color: {bg_color}; color: {text_color};")
-        
-        self.btn_settings.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {text_color};
-                border: none;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                color: {hover_color};
-            }}
-        """)
-        
-        menu_bg = palette.color(QPalette.Window).name()
-        menu_text = palette.color(QPalette.WindowText).name()
-        menu_highlight = palette.color(QPalette.Highlight).name()
-        self.settings_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {menu_bg};
-                border: 1px solid {palette.color(QPalette.Dark).name()};
-                border-radius: 6px;
-                color: {menu_text};
-            }}
-            QMenu::item:selected {{
-                background-color: {menu_highlight};
-            }}
-        """)
-        
-        self.grid.viewport().update()
+    def get_presets_map(self, force_refresh=False):
+        """Returns the cached brush preset dictionary or updates it on demand"""
+        if not self._presets_cache or force_refresh:
+            app = krita.Krita.instance()
+            self._presets_cache = app.resources("preset")
+        return self._presets_cache
 
     def changeEvent(self, event):
-        if event.type() == QEvent.PaletteChange:
+        """Intercepts Krita theme changes and re-evaluates style sheets"""
+        if event and event.type() == QEvent.PaletteChange:
             self.update_theme()
         super().changeEvent(event)
 
-    def resizeEvent(self, event):
-        if self._updating:
-            super().resizeEvent(event)
-            return
+    def update_theme(self):
+        """Applies dynamic Qt-theme color styling based on the active Krita color scheme"""
+        palette = self.palette()
+        bg_color = palette.color(QPalette.Window).name()
+        text_color = palette.color(QPalette.WindowText).name()
+        border_color = palette.color(QPalette.Mid).name()
+        highlight_color = palette.color(QPalette.Highlight).name()
         
-        self._last_width = event.size().width()
-        self._last_height = event.size().height()
+        # Dynamic style for settings bar and layout controls
+        self.top_bar.setStyleSheet(f"background-color: {bg_color}; border-bottom: 1px solid {border_color};")
+        self.btn_settings.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {text_color}; border: none; font-size: 14px; }}"
+            f"QPushButton:hover {{ color: {highlight_color}; }}"
+        )
+        self.settings_menu.setStyleSheet(
+            f"QMenu {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 6px; color: {text_color}; }}"
+            f"QMenu::item:selected {{ background-color: {highlight_color}; color: {palette.color(QPalette.HighlightedText).name()}; }}"
+        )
         
-        # Вызываем apply_architecture с защитой от рекурсии
-        self._updating = True
-        self.apply_architecture()
-        self._updating = False
-        
-        super().resizeEvent(event)
+        self.grid.viewport().update()
 
-    def apply_architecture(self):
-        w = self._last_width if self._last_width > 0 else self.main_widget.width()
-        h = self._last_height if self._last_height > 0 else self.main_widget.height()
+    def resizeEvent(self, event):
+        """Triggers dynamic calculations whenever the dock window size changes"""
+        super().resizeEvent(event)
+        self.apply_architecture()
+
+    def showEvent(self, event):
+        """Updates the brush resource cache when the panel is toggled back to view"""
+        super().showEvent(event)
+        self.get_presets_map(force_refresh=True)
+        self.load_slots()
+
+    def apply_architecture(self, force_reload=False):
+        """Dynamically reverses layouts to push the grid tightly into the requested corner"""
+        w = self.main_widget.width()
+        h = self.main_widget.height()
         is_wide = w > h
         
         eff_layout, eff_anchor, eff_bar = self.state.get_effective_state(is_wide)
         
-        if eff_layout == "vertical":
-            if eff_anchor == "Left":
-                self.anchor_layout.setDirection(QBoxLayout.LeftToRight)
-            else:
-                self.anchor_layout.setDirection(QBoxLayout.RightToLeft)
-        else:
-            if eff_anchor == "Top":
-                self.anchor_layout.setDirection(QBoxLayout.TopToBottom)
-            else:
-                self.anchor_layout.setDirection(QBoxLayout.BottomToTop)
-
-        if eff_bar == "Top":
-            self.main_layout.setDirection(QBoxLayout.TopToBottom)
-            self.bar_layout.setDirection(QBoxLayout.LeftToRight)
-        elif eff_bar == "Bottom":
-            self.main_layout.setDirection(QBoxLayout.BottomToTop)
-            self.bar_layout.setDirection(QBoxLayout.LeftToRight)
-        elif eff_bar == "Left":
-            self.main_layout.setDirection(QBoxLayout.LeftToRight)
-            self.bar_layout.setDirection(QBoxLayout.TopToBottom)
-        elif eff_bar == "Right":
-            self.main_layout.setDirection(QBoxLayout.RightToLeft)
-            self.bar_layout.setDirection(QBoxLayout.TopToBottom)
+        # Performance optimization: change layout directions only when actual state transitions occur
+        layout_changed = (
+            not hasattr(self, '_last_eff_layout') or
+            self._last_eff_layout != eff_layout or
+            self._last_eff_anchor != eff_anchor or
+            self._last_eff_bar != eff_bar or
+            force_reload
+        )
+        
+        if layout_changed:
+            self._last_eff_layout = eff_layout
+            self._last_eff_anchor = eff_anchor
+            self._last_eff_bar = eff_bar
             
-        self.grid.recalculate_math(eff_layout)
-        self.load_slots()
+            # 1. Update Grid Anchor (Push Left/Right/Top/Bottom via Stretches)
+            if eff_layout == "vertical":
+                if eff_anchor == "Left":
+                    self.anchor_layout.setDirection(QBoxLayout.LeftToRight)
+                else:
+                    self.anchor_layout.setDirection(QBoxLayout.RightToLeft)
+            else:
+                if eff_anchor == "Top":
+                    self.anchor_layout.setDirection(QBoxLayout.TopToBottom)
+                else:
+                    self.anchor_layout.setDirection(QBoxLayout.BottomToTop)
+
+            # 2. Update Bar Position
+            if eff_bar == "Top":
+                self.main_layout.setDirection(QBoxLayout.TopToBottom)
+                self.bar_layout.setDirection(QBoxLayout.LeftToRight)
+            elif eff_bar == "Bottom":
+                self.main_layout.setDirection(QBoxLayout.BottomToTop)
+                self.bar_layout.setDirection(QBoxLayout.LeftToRight)
+            elif eff_bar == "Left":
+                self.main_layout.setDirection(QBoxLayout.LeftToRight)
+                self.bar_layout.setDirection(QBoxLayout.TopToBottom)
+            elif eff_bar == "Right":
+                self.main_layout.setDirection(QBoxLayout.RightToLeft)
+                self.bar_layout.setDirection(QBoxLayout.TopToBottom)
+            
+        # Re-evaluate widget constraints using active dimensions
+        self.grid.recalculate_math(eff_layout, w, h)
+        
+        if force_reload or layout_changed:
+            self.load_slots()
 
     def load_slots(self):
         self.grid.clear()
-        app = krita.Krita.instance()
-        resources = app.resources("preset")
-        
+        resources = self.get_presets_map()
         grid_size = self.grid.gridSize() 
         
         for i in range(self.state.total_slots):
@@ -191,17 +198,22 @@ class SmartPanelDocker(QDockWidget):
         if not window or not window.activeView(): return
         
         if brush_name:
-            preset = app.resources("preset").get(brush_name)
-            if preset:
+            # Cleanly set active preset without forcing Freehand tool selection
+            preset = self.get_presets_map().get(brush_name)
+            if preset: 
                 window.activeView().setCurrentBrushPreset(preset)
         else:
+            # Slot is empty -> Assign the currently selected brush
             preset = window.activeView().currentBrushPreset()
             if preset:
                 self.state.slot_data[str(idx)] = preset.name()
+                # Dynamically write directly to local cache dictionary
+                self.get_presets_map()[preset.name()] = preset
                 self.state.save()
                 self.load_slots()
                 
     def on_context_menu(self, pos):
+        """Right click context menu to clear slots"""
         item = self.grid.itemAt(pos)
         if not item: return
         idx = item.data(Qt.UserRole + 1)
@@ -209,7 +221,17 @@ class SmartPanelDocker(QDockWidget):
         
         if brush_name:
             menu = QMenu(self)
-            menu.setStyleSheet(self.settings_menu.styleSheet())
+            palette = self.palette()
+            border_color = palette.color(QPalette.Mid).name()
+            bg_color = palette.color(QPalette.Window).name()
+            text_color = palette.color(QPalette.WindowText).name()
+            highlight_color = palette.color(QPalette.Highlight).name()
+            
+            menu.setStyleSheet(
+                f"QMenu {{ background-color: {bg_color}; border: 1px solid {border_color}; color: {text_color}; padding: 4px; }}"
+                f"QMenu::item:selected {{ background-color: {highlight_color}; color: {palette.color(QPalette.HighlightedText).name()}; }}"
+            )
+            
             clear_action = QAction("Clear Slot", self)
             clear_action.triggered.connect(lambda: self.clear_slot(idx))
             menu.addAction(clear_action)
@@ -335,12 +357,14 @@ class SmartPanelDocker(QDockWidget):
         
         self.update_settings_visibility()
         self.state.save()
-        self.apply_architecture()
+        self.apply_architecture(force_reload=True)
 
     def on_dock_changed(self, area):
         self.state.current_dock_area = area
+        self.state.save()
         self.apply_architecture()
 
     def on_float_changed(self, is_floating):
         self.state.is_floating = is_floating
+        self.state.save()
         self.apply_architecture()
