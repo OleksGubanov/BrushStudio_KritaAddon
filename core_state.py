@@ -28,11 +28,10 @@ class PanelState:
         self.aspect_h = float(self.settings.value("aspect_h", 1.0))
         self.slot_padding = int(self.settings.value("slot_padding", 2))
         
-        # Restore saved dock area state to prevent mismatch on first launch
-        self.current_dock_area = Qt.DockWidgetArea(int(self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))))
-        self.is_floating = self.settings.value("is_floating", "false") == "true"
+        self.current_dock_area = Qt.RightDockWidgetArea
+        self.is_floating = False
         
-        # Dictionary storing user assignments
+        # Dictionary storing user assignments: { "0": "Brush Name", "1": "Eraser", ... }
         slots_json = self.settings.value("slot_data", "{}")
         try:
             self.slot_data = json.loads(slots_json)
@@ -53,8 +52,6 @@ class PanelState:
         self.settings.setValue("aspect_h", self.aspect_h)
         self.settings.setValue("slot_padding", self.slot_padding)
         self.settings.setValue("slot_data", json.dumps(self.slot_data))
-        self.settings.setValue("current_dock_area", int(self.current_dock_area))
-        self.settings.setValue("is_floating", self.is_floating)
 
     def get_effective_state(self, is_wide=False):
         """Returns tuple: (Layout Direction, Cross-Axis Anchor, Bar Position)"""
