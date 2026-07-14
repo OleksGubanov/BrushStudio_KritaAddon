@@ -1,7 +1,7 @@
 import krita
 from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, 
                              QPushButton, QComboBox, QLabel, QSpinBox, 
-                             QMenu, QAction, QWidgetAction, QFormLayout, QApplication)
+                             QMenu, QAction, QWidgetAction, QFormLayout, QApplication, QCheckBox)
 from PyQt5.QtCore import Qt, QPoint, QEvent
 from PyQt5.QtGui import QPalette
 
@@ -33,7 +33,6 @@ class SmartPanelDocker(QDockWidget):
         self.bar_layout.addWidget(self.btn_settings)
         self.top_bar.setLayout(self.bar_layout)
         
-        # New Pure Architecture
         self.grid = AdaptiveGridWidget(self.state)
         self.scroll_area = SlotScrollArea(self.grid)
         
@@ -61,19 +60,23 @@ class SmartPanelDocker(QDockWidget):
 
     def update_theme(self):
         palette = self.palette()
-        bg = palette.color(QPalette.Window).name()
+        bg = palette.color(QPalette.Window)
         text = palette.color(QPalette.WindowText).name()
         border = palette.color(QPalette.Mid).name()
         hl = palette.color(QPalette.Highlight).name()
         
-        self.main_widget.setStyleSheet(f"background-color: {bg};")
-        self.top_bar.setStyleSheet(f"background-color: {bg}; border-bottom: 1px solid {border};")
+        # Make the well visually darker to separate it like an empty checkbox
+        dark_bg = bg.darker(130).name()
+        
+        self.main_widget.setStyleSheet(f"background-color: {bg.name()};")
+        self.top_bar.setStyleSheet(f"background-color: {bg.name()}; border-bottom: 1px solid {border};")
+        self.scroll_area.setStyleSheet(f"QScrollArea {{ background-color: {dark_bg}; border: none; }}")
         self.btn_settings.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {text}; border: none; font-size: 14px; }}"
             f"QPushButton:hover {{ color: {hl}; }}"
         )
         self.settings_menu.setStyleSheet(
-            f"QMenu {{ background-color: {bg}; border: 1px solid {border}; border-radius: 6px; color: {text}; }}"
+            f"QMenu {{ background-color: {bg.name()}; border: 1px solid {border}; border-radius: 6px; color: {text}; }}"
             f"QMenu::item:selected {{ background-color: {hl}; color: {palette.color(QPalette.HighlightedText).name()}; }}"
         )
         for slot in self.grid.slots: slot.update()
@@ -91,7 +94,6 @@ class SmartPanelDocker(QDockWidget):
         w, h = self.main_widget.width(), self.main_widget.height()
         eff_layout, eff_anchor, eff_bar = self.state.get_effective_state(w > h)
         
-        # 1. Native QScrollArea Alignment! Replaces anchor stretches
         align = Qt.AlignTop
         if eff_anchor == "Left": align |= Qt.AlignLeft
         elif eff_anchor == "Right": align |= Qt.AlignRight
@@ -106,7 +108,6 @@ class SmartPanelDocker(QDockWidget):
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        # 2. Bar Position
         if eff_bar == "Top":
             self.main_layout.setDirection(QBoxLayout.TopToBottom)
             self.bar_layout.setDirection(QBoxLayout.LeftToRight)
@@ -168,12 +169,22 @@ class SmartPanelDocker(QDockWidget):
     def build_popup_menu(self):
         self.settings_menu = QMenu(self)
         settings_widget = QWidget()
-        settings_widget.setMinimumWidth(280)
         form_layout = QFormLayout()
         
+        # Display toggles
+        visual_layout = QHBoxLayout()
+        self.chk_icon = QCheckBox("Icon"); self.chk_icon.setChecked(self.state.show_icon)
+        self.chk_tip = QCheckBox("Tip"); self.chk_tip.setChecked(self.state.show_tip)
+        self.chk_stroke = QCheckBox("Stroke"); self.chk_stroke.setChecked(self.state.show_stroke)
+        visual_layout.addWidget(self.chk_icon); visual_layout.addWidget(self.chk_tip); visual_layout.addWidget(self.chk_stroke)
+
         self.cmb_mode = QComboBox(); self.cmb_mode.addItems(["auto", "manual"]); self.cmb_mode.setCurrentText(self.state.mode)
         self.cmb_auto_vert = QComboBox(); self.cmb_auto_vert.addItems(["Left", "Right"]); self.cmb_auto_vert.setCurrentText(self.state.auto_vert_docks)
         self.cmb_auto_horiz = QComboBox(); self.cmb_auto_horiz.addItems(["Top", "Bottom"]); self.cmb_auto_horiz.setCurrentText(self.state.auto_horiz_docks)
+        
+        self.cmb_auto_bar_v = QComboBox(); self.cmb_auto_bar_v.addItems(["Top", "Bottom", "Left", "Right"]); self.cmb_auto_bar_v.setCurrentText(self.state.auto_bar_vert)
+        self.cmb_auto_bar_h = QComboBox(); self.cmb_auto_bar_h.addItems(["Top", "Bottom", "Left", "Right"]); self.cmb_auto_bar_h.setCurrentText(self.state.auto_bar_horiz)
+
         self.cmb_layout = QComboBox(); self.cmb_layout.addItems(["vertical", "horizontal"]); self.cmb_layout.setCurrentText(self.state.manual_layout)
         self.cmb_anchor = QComboBox(); self.cmb_anchor.addItems(["Left", "Right", "Top", "Bottom"]); self.cmb_anchor.setCurrentText(self.state.manual_anchor)
         self.cmb_bar = QComboBox(); self.cmb_bar.addItems(["Top", "Bottom", "Left", "Right"]); self.cmb_bar.setCurrentText(self.state.manual_bar)
@@ -184,21 +195,25 @@ class SmartPanelDocker(QDockWidget):
         self.spin_padding = QSpinBox(); self.spin_padding.setRange(0, 20); self.spin_padding.setValue(self.state.slot_padding)
         
         aspect_layout = QHBoxLayout(); aspect_layout.setContentsMargins(0,0,0,0)
-        self.spin_asp_w = QSpinBox(); self.spin_asp_w.setValue(int(self.state.aspect_w))
-        self.spin_asp_h = QSpinBox(); self.spin_asp_h.setValue(int(self.state.aspect_h))
+        self.spin_asp_w = QSpinBox(); self.spin_asp_w.setMinimum(1); self.spin_asp_w.setValue(int(self.state.aspect_w))
+        self.spin_asp_h = QSpinBox(); self.spin_asp_h.setMinimum(1); self.spin_asp_h.setValue(int(self.state.aspect_h))
         aspect_layout.addWidget(self.spin_asp_w); aspect_layout.addWidget(QLabel(":")); aspect_layout.addWidget(self.spin_asp_h)
         
-        self.lbl_auto_v, self.lbl_auto_h = QLabel("Auto (Vert):"), QLabel("Auto (Horiz):")
+        self.lbl_auto_v, self.lbl_auto_h = QLabel("Auto Anchor (Vert):"), QLabel("Auto Anchor (Horiz):")
+        self.lbl_abar_v, self.lbl_abar_h = QLabel("Auto Bar (Vert):"), QLabel("Auto Bar (Horiz):")
         self.lbl_man_l, self.lbl_man_a, self.lbl_man_b = QLabel("Layout:"), QLabel("Anchor:"), QLabel("Settings Bar:")
         
+        form_layout.addRow("Display Elements:", visual_layout)
         form_layout.addRow("Mode:", self.cmb_mode)
         form_layout.addRow(self.lbl_auto_v, self.cmb_auto_vert)
         form_layout.addRow(self.lbl_auto_h, self.cmb_auto_horiz)
+        form_layout.addRow(self.lbl_abar_v, self.cmb_auto_bar_v)
+        form_layout.addRow(self.lbl_abar_h, self.cmb_auto_bar_h)
         form_layout.addRow(self.lbl_man_l, self.cmb_layout)
         form_layout.addRow(self.lbl_man_a, self.cmb_anchor)
         form_layout.addRow(self.lbl_man_b, self.cmb_bar)
         form_layout.addRow("Total Slots:", self.spin_slots)
-        form_layout.addRow("Target Cols/Rows:", self.spin_divider)
+        form_layout.addRow("Exact Cols/Rows:", self.spin_divider)
         form_layout.addRow("Base Size (px):", self.spin_base)
         form_layout.addRow("Slot Padding:", self.spin_padding)
         form_layout.addRow("Proportions:", aspect_layout)
@@ -210,14 +225,16 @@ class SmartPanelDocker(QDockWidget):
         
         self.update_settings_visibility()
         
-        for w in [self.cmb_mode, self.cmb_auto_vert, self.cmb_auto_horiz, self.cmb_layout, self.cmb_anchor, self.cmb_bar]:
+        for w in [self.cmb_mode, self.cmb_auto_vert, self.cmb_auto_horiz, self.cmb_auto_bar_v, self.cmb_auto_bar_h, self.cmb_layout, self.cmb_anchor, self.cmb_bar]:
             w.currentTextChanged.connect(self.on_settings_changed)
         for w in [self.spin_slots, self.spin_divider, self.spin_base, self.spin_padding, self.spin_asp_w, self.spin_asp_h]:
             w.valueChanged.connect(self.on_settings_changed)
+        for w in [self.chk_icon, self.chk_tip, self.chk_stroke]:
+            w.stateChanged.connect(self.on_settings_changed)
 
     def update_settings_visibility(self):
         is_auto = (self.cmb_mode.currentText() == "auto")
-        for lbl, w in [(self.lbl_auto_v, self.cmb_auto_vert), (self.lbl_auto_h, self.cmb_auto_horiz)]:
+        for lbl, w in [(self.lbl_auto_v, self.cmb_auto_vert), (self.lbl_auto_h, self.cmb_auto_horiz), (self.lbl_abar_v, self.cmb_auto_bar_v), (self.lbl_abar_h, self.cmb_auto_bar_h)]:
             lbl.setVisible(is_auto); w.setVisible(is_auto)
         for lbl, w in [(self.lbl_man_l, self.cmb_layout), (self.lbl_man_a, self.cmb_anchor), (self.lbl_man_b, self.cmb_bar)]:
             lbl.setVisible(not is_auto); w.setVisible(not is_auto)
@@ -231,12 +248,26 @@ class SmartPanelDocker(QDockWidget):
 
     def show_popup_settings(self):
         btn_pos = self.btn_settings.mapToGlobal(QPoint(0, 0))
-        self.settings_menu.exec_(QPoint(btn_pos.x() - self.settings_menu.sizeHint().width() + 20, btn_pos.y() + 20))
+        btn_w = self.btn_settings.width()
+        btn_h = self.btn_settings.height()
+        menu_size = self.settings_menu.sizeHint()
+
+        screen_rect = QApplication.desktop().screenGeometry(self.btn_settings)
+        cx = screen_rect.center().x()
+        cy = screen_rect.center().y()
+
+        # Diagonal Quadrant Expansion Logic
+        x = btn_pos.x() - menu_size.width() if btn_pos.x() > cx else btn_pos.x() + btn_w
+        y = btn_pos.y() - menu_size.height() if btn_pos.y() > cy else btn_pos.y() + btn_h
+
+        self.settings_menu.exec_(QPoint(x, y))
 
     def on_settings_changed(self):
         self.state.mode = self.cmb_mode.currentText()
         self.state.auto_vert_docks = self.cmb_auto_vert.currentText()
         self.state.auto_horiz_docks = self.cmb_auto_horiz.currentText()
+        self.state.auto_bar_vert = self.cmb_auto_bar_v.currentText()
+        self.state.auto_bar_horiz = self.cmb_auto_bar_h.currentText()
         self.state.manual_layout = self.cmb_layout.currentText()
         self.state.manual_anchor = self.cmb_anchor.currentText()
         self.state.manual_bar = self.cmb_bar.currentText()
@@ -244,7 +275,10 @@ class SmartPanelDocker(QDockWidget):
         self.state.main_divider = self.spin_divider.value()
         self.state.base_icon_size = self.spin_base.value()
         self.state.slot_padding = self.spin_padding.value()
-        self.state.aspect_w, self.state.aspect_h = float(self.spin_asp_w.value()), float(self.spin_asp_h.value())
+        self.state.aspect_w, self.state.aspect_h = max(1.0, float(self.spin_asp_w.value())), max(1.0, float(self.spin_asp_h.value()))
+        self.state.show_icon = self.chk_icon.isChecked()
+        self.state.show_tip = self.chk_tip.isChecked()
+        self.state.show_stroke = self.chk_stroke.isChecked()
         
         self.update_settings_visibility()
         self.state.save()

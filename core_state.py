@@ -8,17 +8,29 @@ class PanelState:
 
     def load(self):
         self.mode = self.settings.value("mode", "auto")
+        
         self.auto_vert_docks = self.settings.value("auto_vert_docks", "Left")
         self.auto_horiz_docks = self.settings.value("auto_horiz_docks", "Top")
+        
+        # Priority bar positions for auto mode
+        self.auto_bar_vert = self.settings.value("auto_bar_vert", "Top")
+        self.auto_bar_horiz = self.settings.value("auto_bar_horiz", "Left")
+        
         self.manual_layout = self.settings.value("manual_layout", "vertical")
         self.manual_anchor = self.settings.value("manual_anchor", "Left")
         self.manual_bar = self.settings.value("manual_bar", "Top")
-        self.total_slots = int(self.settings.value("total_slots", 20))
-        self.main_divider = int(self.settings.value("main_divider", 3))
+
+        self.total_slots = int(self.settings.value("total_slots", 44))
+        self.main_divider = int(self.settings.value("main_divider", 4))
         self.base_icon_size = int(self.settings.value("base_icon_size", 32))
-        self.aspect_w = float(self.settings.value("aspect_w", 1.0))
+        self.aspect_w = float(self.settings.value("aspect_w", 4.0))
         self.aspect_h = float(self.settings.value("aspect_h", 1.0))
         self.slot_padding = int(self.settings.value("slot_padding", 2))
+        
+        # Visual Elements
+        self.show_icon = self.settings.value("show_icon", "true") == "true"
+        self.show_stroke = self.settings.value("show_stroke", "false") == "true"
+        self.show_tip = self.settings.value("show_tip", "false") == "true"
         
         self.current_dock_area = Qt.DockWidgetArea(int(self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))))
         self.is_floating = self.settings.value("is_floating", "false") == "true"
@@ -31,6 +43,8 @@ class PanelState:
         self.settings.setValue("mode", self.mode)
         self.settings.setValue("auto_vert_docks", self.auto_vert_docks)
         self.settings.setValue("auto_horiz_docks", self.auto_horiz_docks)
+        self.settings.setValue("auto_bar_vert", self.auto_bar_vert)
+        self.settings.setValue("auto_bar_horiz", self.auto_bar_horiz)
         self.settings.setValue("manual_layout", self.manual_layout)
         self.settings.setValue("manual_anchor", self.manual_anchor)
         self.settings.setValue("manual_bar", self.manual_bar)
@@ -40,16 +54,22 @@ class PanelState:
         self.settings.setValue("aspect_w", self.aspect_w)
         self.settings.setValue("aspect_h", self.aspect_h)
         self.settings.setValue("slot_padding", self.slot_padding)
+        self.settings.setValue("show_icon", self.show_icon)
+        self.settings.setValue("show_stroke", self.show_stroke)
+        self.settings.setValue("show_tip", self.show_tip)
         self.settings.setValue("slot_data", json.dumps(self.slot_data))
         self.settings.setValue("current_dock_area", int(self.current_dock_area))
         self.settings.setValue("is_floating", self.is_floating)
 
     def get_effective_state(self, is_wide=False):
-        if self.mode == "manual": return self.manual_layout, self.manual_anchor, self.manual_bar
+        if self.mode == "manual":
+            return self.manual_layout, self.manual_anchor, self.manual_bar
+            
         if self.is_floating:
-            return ("horizontal", self.auto_horiz_docks, "Top") if is_wide else ("vertical", self.auto_vert_docks, "Left")
+            # Dynamically shifts based on window aspect ratio
+            return ("horizontal", self.auto_horiz_docks, self.auto_bar_horiz) if is_wide else ("vertical", self.auto_vert_docks, self.auto_bar_vert)
         
-        if self.current_dock_area == Qt.TopDockWidgetArea: return "horizontal", self.auto_horiz_docks, "Top"
-        elif self.current_dock_area == Qt.BottomDockWidgetArea: return "horizontal", self.auto_horiz_docks, "Bottom"
-        elif self.current_dock_area == Qt.LeftDockWidgetArea: return "vertical", self.auto_vert_docks, "Left"
-        else: return "vertical", self.auto_vert_docks, "Right"
+        if self.current_dock_area == Qt.TopDockWidgetArea: return "horizontal", self.auto_horiz_docks, self.auto_bar_horiz
+        elif self.current_dock_area == Qt.BottomDockWidgetArea: return "horizontal", self.auto_horiz_docks, self.auto_bar_horiz
+        elif self.current_dock_area == Qt.LeftDockWidgetArea: return "vertical", self.auto_vert_docks, self.auto_bar_vert
+        else: return "vertical", self.auto_vert_docks, self.auto_bar_vert
