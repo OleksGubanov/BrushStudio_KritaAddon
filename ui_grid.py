@@ -1,7 +1,6 @@
 from PyQt5.QtWidgets import QListWidget, QListView, QStyle
 from PyQt5.QtCore import Qt, QSize
 from .ui_delegate import BrushItemDelegate
-import math
 
 class AdaptiveListWidget(QListWidget):
     def __init__(self, state_manager, parent_panel):
@@ -17,9 +16,10 @@ class AdaptiveListWidget(QListWidget):
         self.setMovement(QListView.Static)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
-        self.setSpacing(0) # Absolute zero spacing
+        self.setSpacing(0) # Spacing is fully handled internally by the Delegate
         
-        self.setItemDelegate(BrushItemDelegate())
+        # Pass state to delegate for dynamic padding updates
+        self.setItemDelegate(BrushItemDelegate(self.state))
         self.setStyleSheet("QListWidget { background: transparent; border: none; outline: none; }")
 
     def resizeEvent(self, event):
@@ -48,7 +48,6 @@ class AdaptiveListWidget(QListWidget):
             self._last_dir = dir_state_hash
             self.parent_panel.load_real_brushes(effective_layout, effective_dir)
 
-        # --- Blender-style Relative Scale Engine ---
         base_unit = 32
         scale = self.state.scale_factor
         aspect_ratio = self.state.get_safe_ratio()
@@ -63,17 +62,22 @@ class AdaptiveListWidget(QListWidget):
             available_w = self.width() - scroll_w
             if available_w < 1: available_w = 1
             
-            # Desired minimum width based on scale and aspect
             desired_w = base_unit * scale * self.state.aspect_w
             
-            # Rule 1: Reduce columns if they don't fit
             actual_cols = target_divider
             while actual_cols > 1 and (available_w / actual_cols) < desired_w:
                 actual_cols -= 1
                 
-            # Rule 2: Stretch remaining to fill available space 100%
-            item_w = available_w / actual_cols
-            item_h = item_w / aspect_ratio
+            # PERFECT MATH: Sub-pixel compensation
+            remainder_w = available_w % actual_cols
+            perfect_w = available_w - remainder_w
+            item_w = perfect_w // actual_cols
+            item_h = int(item_w / aspect_ratio)
+            
+            # Distribute remainder as Viewport Margins to center the grid perfectly
+            margin_left = remainder_w // 2
+            margin_right = remainder_w - margin_left
+            self.viewport().setContentsMargins(margin_left, 0, margin_right, 0)
             
             self.state.actual_divider = actual_cols
             self.state.actual_w = item_w
@@ -95,8 +99,16 @@ class AdaptiveListWidget(QListWidget):
             while actual_rows > 1 and (available_h / actual_rows) < desired_h:
                 actual_rows -= 1
                 
-            item_h = available_h / actual_rows
-            item_w = item_h * aspect_ratio
+            # PERFECT MATH: Sub-pixel compensation
+            remainder_h = available_h % actual_rows
+            perfect_h = available_h - remainder_h
+            item_h = perfect_h // actual_rows
+            item_w = int(item_h * aspect_ratio)
+            
+            # Distribute remainder to center vertically
+            margin_top = remainder_h // 2
+            margin_bottom = remainder_h - margin_top
+            self.viewport().setContentsMargins(0, margin_top, 0, margin_bottom)
             
             self.state.actual_divider = actual_rows
             self.state.actual_w = item_w
@@ -105,9 +117,8 @@ class AdaptiveListWidget(QListWidget):
             self.setFlow(QListView.TopToBottom)
             self.setLayoutDirection(Qt.LeftToRight)
 
-        # Set exact float sizes casted to int for Qt Grid
-        self.setGridSize(QSize(int(item_w), int(item_h)))
+        # Set strict grid with exact integers
+        self.setGridSize(QSize(item_w, item_h))
         self.update()
         
-        # Send actuals back to UI
         self.parent_panel.update_actuals_display()

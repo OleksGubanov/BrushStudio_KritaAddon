@@ -3,18 +3,21 @@ from PyQt5.QtCore import Qt, QRect, QPoint
 from PyQt5.QtGui import QPainter, QColor, QPen
 
 class BrushItemDelegate(QStyledItemDelegate):
-    def __init__(self):
+    def __init__(self, state_manager):
         super().__init__()
+        self.state = state_manager
 
     def paint(self, painter, option, index):
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Absolute exact bounds (0 margin for seamless block layout)
-        rect = option.rect
+        # Apply user-defined padding (gap between slots)
+        pad = self.state.slot_padding
+        rect = option.rect.adjusted(pad, pad, -pad, -pad)
+        
         is_selected = option.state & QStyle.State_Selected
         is_hovered = option.state & QStyle.State_MouseOver
 
-        # 1. Background Fill (100% of slot area)
+        # Dense dark background for the slot
         if is_selected:
             bg_color = QColor("#2A4365")
         elif is_hovered:
@@ -22,24 +25,25 @@ class BrushItemDelegate(QStyledItemDelegate):
         else:
             bg_color = QColor("#2D2D2D")
             
-        painter.fillRect(rect, bg_color)
+        painter.setBrush(bg_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect, 3, 3) 
         
-        # 1px Dark border to separate buttons (Blender style)
+        # Outer dark line to simulate Blender-like depth
         painter.setPen(QPen(QColor("#181818"), 1))
-        painter.drawRect(rect)
+        painter.drawRoundedRect(rect, 3, 3)
         
         if is_selected:
             painter.setPen(QPen(QColor("#63B3ED"), 1))
-            painter.drawRect(rect.adjusted(1, 1, -1, -1))
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 3, 3)
 
-        # 2. Icon Drawing
+        # Icon Drawing Logic (Preserve aspect, snap to start)
         icon = index.data(Qt.DecorationRole)
         if icon:
-            # 2px internal padding for the icon
+            # Internal icon margin is minimal
             icon_side = min(rect.width(), rect.height()) - 4
             icon_rect = QRect(0, 0, int(icon_side), int(icon_side))
             
-            # Anchor to start, preserving aspect ratio
             if rect.width() > rect.height():
                 icon_rect.moveCenter(QPoint(rect.left() + int(icon_side / 2) + 2, rect.center().y()))
             else:

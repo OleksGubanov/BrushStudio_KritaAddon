@@ -86,7 +86,6 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_layout.addItems(["vertical", "horizontal"])
         self.cmb_layout.setCurrentText(self.state.manual_layout)
         
-        # New Scale Factor
         self.spin_scale = QDoubleSpinBox()
         self.spin_scale.setRange(0.5, 10.0)
         self.spin_scale.setSingleStep(0.1)
@@ -95,6 +94,11 @@ class SmartPanelDocker(QDockWidget):
         self.spin_divider = QSpinBox()
         self.spin_divider.setRange(1, 10)
         self.spin_divider.setValue(self.state.main_divider)
+        
+        # New: Slot Spacing Setting
+        self.spin_padding = QSpinBox()
+        self.spin_padding.setRange(0, 10)
+        self.spin_padding.setValue(self.state.slot_padding)
         
         aspect_layout = QHBoxLayout()
         aspect_layout.setContentsMargins(0,0,0,0)
@@ -110,7 +114,6 @@ class SmartPanelDocker(QDockWidget):
         
         self.cmb_dir = QComboBox()
         
-        # Technical actuals readout
         self.lbl_actuals = QLabel("Actual: -")
         self.lbl_actuals.setStyleSheet("color: #E2E8F0; font-size: 11px; background: #1A202C; padding: 4px; border-radius: 4px;")
         self.lbl_actuals.setAlignment(Qt.AlignCenter)
@@ -122,6 +125,7 @@ class SmartPanelDocker(QDockWidget):
         form_layout.addRow(self.lbl_layout, self.cmb_layout)
         form_layout.addRow("Scale (Base 32px):", self.spin_scale)
         form_layout.addRow("Target Cols/Rows:", self.spin_divider)
+        form_layout.addRow("Slot Spacing (px):", self.spin_padding)
         form_layout.addRow("Proportions (W : H):", aspect_layout)
         
         self.lbl_dir = QLabel("Start Direction:")
@@ -140,6 +144,7 @@ class SmartPanelDocker(QDockWidget):
         self.cmb_layout.currentTextChanged.connect(self.on_settings_changed)
         self.spin_scale.valueChanged.connect(self.on_settings_changed)
         self.spin_divider.valueChanged.connect(self.on_settings_changed)
+        self.spin_padding.valueChanged.connect(self.on_settings_changed)
         self.spin_asp_w.valueChanged.connect(self.on_settings_changed)
         self.spin_asp_h.valueChanged.connect(self.on_settings_changed)
         self.cmb_dir.currentTextChanged.connect(self.on_dir_changed)
@@ -166,27 +171,22 @@ class SmartPanelDocker(QDockWidget):
             self.cmb_dir.blockSignals(False)
 
     def update_actuals_display(self):
-        """Updates the technical readout in the settings menu"""
         div = self.state.actual_divider
         w = int(self.state.actual_w)
         h = int(self.state.actual_h)
         self.lbl_actuals.setText(f"Actual Grid: {div} | Slot Size: {w}x{h} px")
 
     def show_popup_settings(self):
-        """Smart diagonal positioning based on screen quadrants"""
         btn_pos = self.btn_settings.mapToGlobal(QPoint(0, 0))
         screen_rect = QApplication.desktop().screenGeometry(self.btn_settings)
         menu_size = self.settings_menu.sizeHint()
 
-        # Default assumes Top-Left origin, opening Bottom-Right
         x = btn_pos.x()
         y = btn_pos.y() + self.btn_settings.height()
 
-        # If button is in the Right half of the screen, open to the Left
         if btn_pos.x() > screen_rect.center().x():
             x = btn_pos.x() - menu_size.width() + self.btn_settings.width()
 
-        # If button is in the Bottom half of the screen, open to the Top
         if btn_pos.y() > screen_rect.center().y():
             y = btn_pos.y() - menu_size.height()
 
@@ -198,6 +198,7 @@ class SmartPanelDocker(QDockWidget):
         self.state.manual_layout = self.cmb_layout.currentText()
         self.state.scale_factor = float(self.spin_scale.value())
         self.state.main_divider = self.spin_divider.value()
+        self.state.slot_padding = self.spin_padding.value()
         self.state.aspect_w = float(self.spin_asp_w.value())
         self.state.aspect_h = float(self.spin_asp_h.value())
         
