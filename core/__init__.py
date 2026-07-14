@@ -1,2 +1,3 @@
+from .models import BrushData
 from .state import PanelState
-from .parser import BrushEngineParser
+from .parser import PresetMetadataReader
