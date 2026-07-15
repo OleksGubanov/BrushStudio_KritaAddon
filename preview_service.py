@@ -3,7 +3,7 @@ import math
 from PyQt5.QtGui import QImage, QPainter, QColor, QPainterPath, QBitmap, QRegion
 from PyQt5.QtCore import Qt, QPointF, QRect
 
-def auto_crop_image(img_bytes, canvas_size, target_width, target_height):
+def auto_crop_image(img_bytes, canvas_size, target_width, target_height, is_stroke=False):
     """Преобразует байты в QImage, находит границы через QRegion и кадрирует"""
     original_img = QImage(img_bytes, canvas_size, canvas_size, QImage.Format_RGBA8888).copy()
     
@@ -16,24 +16,29 @@ def auto_crop_image(img_bytes, canvas_size, target_width, target_height):
     if bbox.isNull() or bbox.isEmpty(): 
         return None
         
-    pad = 15
+    if is_stroke:
+        # КАРДИНАЛЬНОЕ РЕШЕНИЕ ДЛЯ СПРЕЕВ И AIRBRUSH:
+        # Игнорируем гигантский разлет частиц по высоте, который делает рамку квадратной.
+        # Вычисляем идеальную высоту исходя из реальной ширины мазка и пропорций слота.
+        target_aspect = target_height / float(target_width)
+        ideal_height = int(bbox.width() * target_aspect)
+        
+        # Центрируем новую высоту относительно реального центра мазка по Y
+        center_y = bbox.center().y()
+        new_top = int(max(0, center_y - ideal_height / 2))
+        new_bottom = int(min(canvas_size - 1, center_y + ideal_height / 2))
+        
+        # Жестко переписываем координаты рамки
+        bbox.setRect(bbox.left(), new_top, bbox.width(), new_bottom - new_top)
+    
+    # Небольшой отступ, чтобы края не прилипали впритык
+    pad = 10
     bbox.adjust(-pad, -pad, pad, pad)
     bbox = bbox.intersected(original_img.rect())
     
-    # --- ИСПРАВЛЕНИЕ ДЛЯ AIRBRUSH И СПРЕЕВ ---
-    # Жестко ограничиваем максимальную высоту bbox, отталкиваясь от пропорций слота.
-    # Если кисть разлетелась по высоте, мы просто обрезаем лишнее сверху и снизу,
-    # чтобы при масштабировании мазок не превратился в точку.
-    aspect_ratio = target_height / float(target_width)
-    max_allowed_h = int(bbox.width() * aspect_ratio * 1.5) # 1.5 - коэффициент запаса
-    
-    if bbox.height() > max_allowed_h:
-        center_y = bbox.center().y()
-        bbox.setTop(max(0, int(center_y - max_allowed_h / 2)))
-        bbox.setBottom(min(canvas_size, int(center_y + max_allowed_h / 2)))
-    
     cropped_img = original_img.copy(bbox)
     return cropped_img.scaled(int(target_width), int(target_height), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
 
 def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_coef=0.4):
     app = krita.Krita.instance()
@@ -68,6 +73,7 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
             else: engine = str(target_preset.name()).lower()
         
         if any(key in engine for key in ["smudge", "deform", "blend", "liquify"]):
+            # Заглушка для блендеров (они не рисуют черным цветом)
             base_img = QImage(canvas_size, canvas_size, QImage.Format_RGBA8888)
             base_img.fill(Qt.transparent)
             p = QPainter(base_img)
@@ -86,11 +92,12 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
         padding = int(canvas_size * 0.08)
         path = QPainterPath()
         
-        # Для спрея/аэрографа лучше делать более прямую линию, чтобы минимизировать вертикальный разлет
         if any(key in engine for key in ["spray", "airbrush"]):
-            path.moveTo(QPointF(padding, canvas_size / 2))
-            path.lineTo(QPointF(canvas_size - padding, canvas_size / 2))
+            # Спрей делаем прямой линией ближе к центру, чтобы не плодить пыль по углам
+            path.moveTo(QPointF(padding * 2, canvas_size / 2))
+            path.lineTo(QPointF(canvas_size - padding * 2, canvas_size / 2))
         else:
+            # Классическая волна для обычных кистей
             path.moveTo(QPointF(padding, canvas_size / 2))
             path.cubicTo(QPointF(canvas_size * 0.3, canvas_size * 0.25), 
                          QPointF(canvas_size * 0.7, canvas_size * 0.75), 
@@ -113,9 +120,15 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
         root.addChildNode(tip_layer, None)
         tip_layer.setPixelData(b'\x00' * (canvas_size * canvas_size * 4), 0, 0, canvas_size, canvas_size)
         
-        # Рисуем одиночный клик (короткая линия для активации отпечатка)
+        # РАДИКАЛЬНОЕ РЕШЕНИЕ ДЛЯ КОНЧИКА:
+        # Вместо 1 пикселя рисуем короткую плотную линию (30px).
+        # Это "пробьет" ограничение Spacing (интервал) у любой кисти.
         center = QPointF(canvas_size / 2, canvas_size / 2)
-        tip_layer.paintLine(center.toPoint(), QPointF(center.x() + 1, center.y()).toPoint(), 1.0, 1.0)
+        tip_layer.paintLine(
+            QPointF(center.x() - 15, center.y()).toPoint(), 
+            QPointF(center.x() + 15, center.y()).toPoint(), 
+            1.0, 1.0
+        )
         
         doc.refreshProjection()
         doc.waitForDone()
@@ -128,10 +141,12 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
     result = {'stroke': None, 'tip': None}
     
     if stroke_bytes and not all(b == 0 for b in stroke_bytes):
-        result['stroke'] = auto_crop_image(stroke_bytes, canvas_size, stroke_w, stroke_h)
+        # Включаем жесткий режим форматирования пропорций (is_stroke=True)
+        result['stroke'] = auto_crop_image(stroke_bytes, canvas_size, stroke_w, stroke_h, is_stroke=True)
         
     if tip_bytes and not all(b == 0 for b in tip_bytes):
-        result['tip'] = auto_crop_image(tip_bytes, canvas_size, tip_size, tip_size)
+        # Кончик вырезаем как есть (is_stroke=False)
+        result['tip'] = auto_crop_image(tip_bytes, canvas_size, tip_size, tip_size, is_stroke=False)
         
     return result
 
