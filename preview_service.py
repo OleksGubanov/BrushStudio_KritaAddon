@@ -1,4 +1,5 @@
 import krita
+import math
 from PyQt5.QtGui import QImage, QPainter, QColor, QPainterPath
 from PyQt5.QtCore import Qt, QPointF, QPoint
 
@@ -23,9 +24,11 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
             # --- 1. АДАПТИВНЫЙ РАЗМЕР КИСТИ ---
             if hasattr(target_preset, 'size'):
                 original_size = target_preset.size()
-                # Мягкое ограничение: не меньше 15px (чтобы видеть мелочь) 
-                # и не больше 70% от высоты (чтобы гиганты влезали в кадр)
-                fixed_size = float(max(15.0, min(original_size, height * 0.7)))
+                
+                # ИСПРАВЛЕНИЕ 1: Уменьшаем макс. порог с 70% до 45%. 
+                # Для мягких кистей (Airbrush) их градиент значительно шире базового размера.
+                max_allowed_size = height * 0.45
+                fixed_size = float(max(15.0, min(original_size, max_allowed_size)))
                 target_preset.setSize(fixed_size)
         
         black = krita.ManagedColor("RGBA", "U8", "")
@@ -39,62 +42,63 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
         # --- 2. БАЗА ДЛЯ РАЗМАЗЫВАЮЩИХ (SMUDGE/BLEND) КИСТЕЙ ---
         engine = ""
         if target_preset:
-            # Пытаемся получить ID движка через метод, если он существует
             if hasattr(target_preset, 'paintOpId'):
                 engine = target_preset.paintOpId().lower()
             else:
-                # Альтернативный способ определения движка через имя (строковое представление)
-                # или если объект Resource ведет себя как имя/путь
                 engine = str(target_preset.name()).lower()
         
-        # Проверяем ключевые слова в названии или ID
         needs_base = any(key in engine for key in ["smudge", "deform", "blend", "liquify"])
         
         if needs_base:
-            # Создаем "кляксы", которые кисть будет размазывать
             base_img = QImage(int(width), int(height), QImage.Format_RGBA8888)
             base_img.fill(Qt.transparent)
             p = QPainter(base_img)
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(255, 255, 255, 255))
             
-            # Рисуем три круга по пути следования мазка
             r = int(height * 0.35)
             p.drawEllipse(int(width * 0.25) - r//2, int(height//2) - r//2, r, r)
             p.drawEllipse(int(width * 0.50) - r//2, int(height//2) - r//2, r, r)
             p.drawEllipse(int(width * 0.75) - r//2, int(height//2) - r//2, r, r)
             p.end()
             
-            # Безопасный перенос байтов из QImage в слой Krita
             ptr = base_img.constBits()
             ptr.setsize(base_img.byteCount())
             paint_layer.setPixelData(bytes(ptr), 0, 0, int(width), int(height))
         else:
-            # Обычный пустой прозрачный слой для рисующих кистей
             empty_bytes = b'\x00' * (int(width) * int(height) * 4)
             paint_layer.setPixelData(empty_bytes, 0, 0, int(width), int(height))
         
-        # --- 3. СЛОЖНЫЙ ПУТЬ МАЗКА (S-кривая для показа динамики/разброса) ---
+        # --- 3. СЛОЖНЫЙ ПУТЬ МАЗКА С ИМИТАЦИЕЙ ДАВЛЕНИЯ ПЕРА ---
         padding = int(width * 0.08)
         path = QPainterPath()
         start_point = QPointF(padding, height / 2)
         path.moveTo(start_point)
         
-        # S-образная кривая с помощью кубического Безье (лучше показывает форму)
-        cp1 = QPointF(width * 0.3, height * 0.1)
-        cp2 = QPointF(width * 0.7, height * 0.9)
+        # ИСПРАВЛЕНИЕ 2: Сжимаем контрольные точки ближе к центру по высоте.
+        # Раньше было 0.1 и 0.9, из-за чего кисть билась о верхний и нижний края холста.
+        cp1 = QPointF(width * 0.3, height * 0.25)
+        cp2 = QPointF(width * 0.7, height * 0.75)
         end_point = QPointF(width - padding, height / 2)
         path.cubicTo(cp1, cp2, end_point)
         
-        paint_layer.paintPath(path, "ForegroundColor", "None")
-        
-        # Кончики мазка (плавный нажим)
-        taper_len = int(width * 0.05)
-        taper_start = QPointF(padding + taper_len, (height / 2) - 1) 
-        paint_layer.paintLine(start_point.toPoint(), taper_start.toPoint(), 0.5, 1.0)
-        
-        taper_end = QPointF(width - padding - taper_len, (height / 2) - 1)
-        paint_layer.paintLine(taper_end.toPoint(), end_point.toPoint(), 1.0, 0.5)
+        # ИСПРАВЛЕНИЕ 3: Полноценное давление.
+        # Разбиваем путь на 50 сегментов. Высчитываем точку на кривой Безье
+        # и применяем давление по форме синусоиды (плавный нажим и отпускание).
+        steps = 50
+        for i in range(steps):
+            t1 = i / steps
+            t2 = (i + 1) / steps
+            
+            pt1 = path.pointAtPercent(t1)
+            pt2 = path.pointAtPercent(t2)
+            
+            # math.sin(t * math.pi) дает идеальную дугу: от 0.0 в начале, до 1.0 в середине, и обратно к 0.0
+            pressure1 = max(0.01, math.sin(t1 * math.pi))
+            pressure2 = max(0.01, math.sin(t2 * math.pi))
+            
+            # Отрисовываем микро-линии с реальным давлением на каждом этапе
+            paint_layer.paintLine(pt1.toPoint(), pt2.toPoint(), pressure1, pressure2)
         
         doc.refreshProjection()
         doc.waitForDone()
@@ -102,7 +106,6 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
         pixel_bytes = paint_layer.pixelData(0, 0, int(width), int(height))
         
     finally:
-        # Обязательно возвращаем кисти ее оригинальный размер!
         if target_preset and original_size is not None:
             target_preset.setSize(original_size)
         doc.setModified(False)
@@ -110,7 +113,6 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
 
     if not pixel_bytes or all(b == 0 for b in pixel_bytes): return None
         
-    # Превращаем результат в чисто белую маску на прозрачном фоне
     original_img = QImage(pixel_bytes, int(width), int(height), QImage.Format_RGBA8888).copy()
     
     white_stroke = QImage(int(width), int(height), QImage.Format_ARGB32_Premultiplied)
