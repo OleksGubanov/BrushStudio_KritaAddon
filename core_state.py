@@ -16,8 +16,8 @@ class PanelState:
         self.total_slots = int(self.settings.value("total_slots", 20))
         self.main_divider = int(self.settings.value("main_divider", 3))
         self.base_icon_size = int(self.settings.value("base_icon_size", 32))
-        self.aspect_w = float(self.settings.value("aspect_w", 1.0))
-        self.aspect_h = float(self.settings.value("aspect_h", 1.0))
+        self.aspect_w = float(self.settings.value("aspect_w", 1.0)) or 1.0
+        self.aspect_h = float(self.settings.value("aspect_h", 1.0)) or 1.0
         self.slot_padding = int(self.settings.value("slot_padding", 2))
         
         # --- НАСТРОЙКИ ВИДИМОСТИ ---

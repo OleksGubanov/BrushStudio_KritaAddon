@@ -61,9 +61,9 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
             p = QPainter(base_img)
             p.setPen(Qt.NoPen)
             r = int(canvas_size * 0.25)
-            p.setBrush(QColor(255, 100, 100, 255)); p.drawEllipse(int(canvas_size * 0.25) - r//2, int(canvas_size//2) - r//2, r, r)
-            p.setBrush(QColor(100, 255, 100, 255)); p.drawEllipse(int(canvas_size * 0.50) - r//2, int(canvas_size//2) - r//2, r, r)
-            p.setBrush(QColor(100, 100, 255, 255)); p.drawEllipse(int(canvas_size * 0.75) - r//2, int(canvas_size//2) - r//2, r, r)
+            p.setBrush(QColor(255, 100, 100, 255)); p.drawEllipse(int(canvas_size * 0.25) - r//3, int(canvas_size//2) - r//3, r, r)
+            p.setBrush(QColor(100, 255, 100, 255)); p.drawEllipse(int(canvas_size * 0.50) - r//3, int(canvas_size//2) - r//3, r, r)
+            p.setBrush(QColor(100, 100, 255, 255)); p.drawEllipse(int(canvas_size * 0.75) - r//3, int(canvas_size//2) - r//3, r, r)
             p.end()
             ptr = base_img.constBits(); ptr.setsize(base_img.byteCount())
             stroke_layer.setPixelData(bytes(ptr), 0, 0, canvas_size, canvas_size)
@@ -71,14 +71,14 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
             empty_bytes = b'\x00' * (canvas_size * canvas_size * 4)
             stroke_layer.setPixelData(empty_bytes, 0, 0, canvas_size, canvas_size)
         
-        padding = int(canvas_size * 0.15)
+        padding = int(canvas_size * 0.08)
         path = QPainterPath()
         path.moveTo(QPointF(padding, canvas_size / 2))
-        path.cubicTo(QPointF(canvas_size * 0.3, canvas_size * 0.2), 
-                     QPointF(canvas_size * 0.7, canvas_size * 0.8), 
+        path.cubicTo(QPointF(canvas_size * 0.3, canvas_size * 0.25), 
+                     QPointF(canvas_size * 0.7, canvas_size * 0.75), 
                      QPointF(canvas_size - padding, canvas_size / 2))
         
-        steps = 50
+        steps = 80
         for i in range(steps):
             t1 = i / steps
             t2 = (i + 1) / steps

@@ -27,10 +27,15 @@ class AdaptiveGridWidget(QWidget):
         if not self.slots: return
 
         # Base sizes
+        aw = self.state.aspect_w if self.state.aspect_w > 0 else 1.0
+        ah = self.state.aspect_h if self.state.aspect_h > 0 else 1.0
+        
         base = self.state.base_icon_size
-        aw, ah = float(self.state.aspect_w), float(self.state.aspect_h)
-        if aw >= ah: item_w, item_h = int(base * (aw / ah)), base
-        else: item_w, item_h = base, int(base * (ah / aw))
+        
+        if aw >= ah:
+            item_w, item_h = int(base * (aw / ah)), base
+        else:
+            item_w, item_h = base, int(base * (ah / aw))
 
         total = len(self.slots)
         vp = self.parentWidget()
