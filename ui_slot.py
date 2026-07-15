@@ -188,16 +188,6 @@ class BrushSlot(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.brush_name and self.preview_service:
-            new_size = event.size()
-            width_diff = abs(new_size.width() - self._last_requested_size.width())
-            height_diff = abs(new_size.height() - self._last_requested_size.height())
-            
-            if width_diff > 15 or height_diff > 10:
-                self._last_requested_size = new_size
-                w = max(100, new_size.width())
-                h = max(30, new_size.height())
-                self.preview_service.request_preview(self.brush_name, w, h)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -229,12 +219,16 @@ class BrushSlot(QWidget):
 
     def _force_sync_render(self):
         if not self.brush_name: return
-        w, h = max(100, self.width()), max(30, self.height())
         from .preview_service import generate_brush_mask_sync
         
-        mask = generate_brush_mask_sync(self.brush_name, w, h)
+        # Используем глобальные настройки качества рендера, а не размер слота
+        mask = generate_brush_mask_sync(
+            self.brush_name, 
+            self.state.preview_render_w, 
+            self.state.preview_render_h,
+            self.state.brush_scale_coef
+        )
         if mask:
-            # Сохраняем кисть и свежую маску
             self.set_brush(self.brush_name, stroke_mask=mask)
 
     def paintEvent(self, event):

@@ -1,6 +1,6 @@
 import krita
 from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, 
-                             QPushButton, QComboBox, QLabel, QSpinBox, 
+                             QPushButton, QComboBox, QLabel, QSpinBox, QDoubleSpinBox,
                              QMenu, QAction, QWidgetAction, QFormLayout, QApplication)
 from PyQt5.QtCore import Qt, QPoint, QEvent
 from PyQt5.QtGui import QPalette
@@ -159,10 +159,13 @@ class SmartPanelDocker(QDockWidget):
                 # Запускаем рендер сразу при добавлении кисти
                 from .preview_service import generate_brush_mask_sync
                 slot_widget = self.grid.slots[idx]
-                w = max(100, slot_widget.width())
-                h = max(30, slot_widget.height())
                 
-                mask = generate_brush_mask_sync(new_name, w, h)
+                mask = generate_brush_mask_sync(
+                    new_name, 
+                    self.state.preview_render_w, 
+                    self.state.preview_render_h,
+                    self.state.brush_scale_coef
+                )
                 
                 # Передаем маску в слот, он сам ее закодирует и сохранит
                 slot_widget.set_brush(new_name, preset.image(), stroke_mask=mask)
@@ -191,6 +194,11 @@ class SmartPanelDocker(QDockWidget):
         self.spin_base = QSpinBox(); self.spin_base.setRange(8, 256); self.spin_base.setValue(self.state.base_icon_size)
         self.spin_padding = QSpinBox(); self.spin_padding.setRange(0, 20); self.spin_padding.setValue(self.state.slot_padding)
         
+        # Новые контролы качества рендера
+        self.spin_prev_w = QSpinBox(); self.spin_prev_w.setRange(50, 1024); self.spin_prev_w.setValue(self.state.preview_render_w)
+        self.spin_prev_h = QSpinBox(); self.spin_prev_h.setRange(20, 512); self.spin_prev_h.setValue(self.state.preview_render_h)
+        self.spin_scale = QDoubleSpinBox(); self.spin_scale.setRange(0.1, 2.0); self.spin_scale.setSingleStep(0.1); self.spin_scale.setValue(self.state.brush_scale_coef)
+        
         aspect_layout = QHBoxLayout(); aspect_layout.setContentsMargins(0,0,0,0)
         self.spin_asp_w = QSpinBox(); self.spin_asp_w.setValue(int(self.state.aspect_w))
         self.spin_asp_h = QSpinBox(); self.spin_asp_h.setValue(int(self.state.aspect_h))
@@ -211,6 +219,12 @@ class SmartPanelDocker(QDockWidget):
         form_layout.addRow("Slot Padding:", self.spin_padding)
         form_layout.addRow("Proportions:", aspect_layout)
         
+        # Добавляем в форму
+        form_layout.addRow("--- Render Settings ---", QLabel(""))
+        form_layout.addRow("Render Width (px):", self.spin_prev_w)
+        form_layout.addRow("Render Height (px):", self.spin_prev_h)
+        form_layout.addRow("Brush Scale Factor:", self.spin_scale)
+        
         settings_widget.setLayout(form_layout)
         action = QWidgetAction(self.settings_menu)
         action.setDefaultWidget(settings_widget)
@@ -220,7 +234,7 @@ class SmartPanelDocker(QDockWidget):
         
         for w in [self.cmb_mode, self.cmb_auto_vert, self.cmb_auto_horiz, self.cmb_layout, self.cmb_anchor, self.cmb_bar]:
             w.currentTextChanged.connect(self.on_settings_changed)
-        for w in [self.spin_slots, self.spin_divider, self.spin_base, self.spin_padding, self.spin_asp_w, self.spin_asp_h]:
+        for w in [self.spin_slots, self.spin_divider, self.spin_base, self.spin_padding, self.spin_asp_w, self.spin_asp_h, self.spin_prev_w, self.spin_prev_h, self.spin_scale]:
             w.valueChanged.connect(self.on_settings_changed)
 
     def update_settings_visibility(self):
@@ -253,6 +267,11 @@ class SmartPanelDocker(QDockWidget):
         self.state.base_icon_size = self.spin_base.value()
         self.state.slot_padding = self.spin_padding.value()
         self.state.aspect_w, self.state.aspect_h = float(self.spin_asp_w.value()), float(self.spin_asp_h.value())
+        
+        # Сохраняем новые настройки
+        self.state.preview_render_w = self.spin_prev_w.value()
+        self.state.preview_render_h = self.spin_prev_h.value()
+        self.state.brush_scale_coef = self.spin_scale.value()
         
         self.update_settings_visibility()
         self.state.save()

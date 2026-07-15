@@ -20,6 +20,11 @@ class PanelState:
         self.aspect_h = float(self.settings.value("aspect_h", 1.0))
         self.slot_padding = int(self.settings.value("slot_padding", 2))
         
+        # --- НОВЫЕ НАСТРОЙКИ РЕНДЕРА ---
+        self.preview_render_w = int(self.settings.value("preview_render_w", 400))
+        self.preview_render_h = int(self.settings.value("preview_render_h", 120))
+        self.brush_scale_coef = float(self.settings.value("brush_scale_coef", 0.4))
+        
         self.current_dock_area = Qt.DockWidgetArea(int(self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))))
         self.is_floating = self.settings.value("is_floating", "false") == "true"
         
@@ -40,6 +45,12 @@ class PanelState:
         self.settings.setValue("aspect_w", self.aspect_w)
         self.settings.setValue("aspect_h", self.aspect_h)
         self.settings.setValue("slot_padding", self.slot_padding)
+        
+        # --- СОХРАНЕНИЕ НАСТРОЕК РЕНДЕРА ---
+        self.settings.setValue("preview_render_w", self.preview_render_w)
+        self.settings.setValue("preview_render_h", self.preview_render_h)
+        self.settings.setValue("brush_scale_coef", self.brush_scale_coef)
+        
         self.settings.setValue("slot_data", json.dumps(self.slot_data))
         self.settings.setValue("current_dock_area", int(self.current_dock_area))
         self.settings.setValue("is_floating", self.is_floating)
