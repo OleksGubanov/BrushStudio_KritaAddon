@@ -1,13 +1,14 @@
 import krita
 from PyQt5.QtWidgets import (QDockWidget, QWidget, QBoxLayout, QHBoxLayout, 
                              QPushButton, QComboBox, QLabel, QSpinBox, QDoubleSpinBox,
-                             QMenu, QAction, QWidgetAction, QFormLayout, QApplication)
+                             QMenu, QAction, QWidgetAction, QFormLayout, QApplication, QCheckBox)
 from PyQt5.QtCore import Qt, QPoint, QEvent
 from PyQt5.QtGui import QPalette
 
 from .core_state import PanelState
 from .ui_grid import AdaptiveGridWidget, SlotScrollArea
 from .ui_slot import BrushSlot
+
 
 class SmartPanelDocker(QDockWidget):
     def __init__(self):
@@ -160,15 +161,16 @@ class SmartPanelDocker(QDockWidget):
                 from .preview_service import generate_brush_mask_sync
                 slot_widget = self.grid.slots[idx]
                 
-                mask = generate_brush_mask_sync(
+                masks = generate_brush_masks_sync(
                     new_name, 
                     self.state.preview_render_w, 
                     self.state.preview_render_h,
+                    self.state.tip_render_size,
                     self.state.brush_scale_coef
                 )
                 
                 # Передаем маску в слот, он сам ее закодирует и сохранит
-                slot_widget.set_brush(new_name, preset.image(), stroke_mask=mask)
+                slot_widget.set_brush(new_name, preset.image(), stroke_mask=masks.get('stroke'), tip_mask=masks.get('tip'))
                 
     def clear_slot(self, idx):
         if str(idx) in self.state.slot_data:
@@ -179,7 +181,7 @@ class SmartPanelDocker(QDockWidget):
     def build_popup_menu(self):
         self.settings_menu = QMenu(self)
         settings_widget = QWidget()
-        settings_widget.setMinimumWidth(280)
+        settings_widget.setMinimumWidth(320)
         form_layout = QFormLayout()
         
         self.cmb_mode = QComboBox(); self.cmb_mode.addItems(["auto", "manual"]); self.cmb_mode.setCurrentText(self.state.mode)
@@ -194,15 +196,22 @@ class SmartPanelDocker(QDockWidget):
         self.spin_base = QSpinBox(); self.spin_base.setRange(8, 256); self.spin_base.setValue(self.state.base_icon_size)
         self.spin_padding = QSpinBox(); self.spin_padding.setRange(0, 20); self.spin_padding.setValue(self.state.slot_padding)
         
-        # Новые контролы качества рендера
-        self.spin_prev_w = QSpinBox(); self.spin_prev_w.setRange(50, 1024); self.spin_prev_w.setValue(self.state.preview_render_w)
-        self.spin_prev_h = QSpinBox(); self.spin_prev_h.setRange(20, 512); self.spin_prev_h.setValue(self.state.preview_render_h)
-        self.spin_scale = QDoubleSpinBox(); self.spin_scale.setRange(0.1, 2.0); self.spin_scale.setSingleStep(0.1); self.spin_scale.setValue(self.state.brush_scale_coef)
-        
         aspect_layout = QHBoxLayout(); aspect_layout.setContentsMargins(0,0,0,0)
         self.spin_asp_w = QSpinBox(); self.spin_asp_w.setValue(int(self.state.aspect_w))
         self.spin_asp_h = QSpinBox(); self.spin_asp_h.setValue(int(self.state.aspect_h))
         aspect_layout.addWidget(self.spin_asp_w); aspect_layout.addWidget(QLabel(":")); aspect_layout.addWidget(self.spin_asp_h)
+        
+        # --- НОВЫЕ ЧЕКБОКСЫ ВИДИМОСТИ ---
+        self.chk_icon = QCheckBox("Show Brush Icon"); self.chk_icon.setChecked(self.state.show_icon)
+        self.chk_stroke = QCheckBox("Show Stroke Preview"); self.chk_stroke.setChecked(self.state.show_stroke)
+        self.chk_tip = QCheckBox("Show Brush Tip"); self.chk_tip.setChecked(self.state.show_tip)
+        self.chk_engine = QCheckBox("Show Engine Emoji"); self.chk_engine.setChecked(self.state.show_engine)
+        self.chk_recolor = QCheckBox("🎨 Monochrome Previews"); self.chk_recolor.setChecked(self.state.recolor_preview)
+        
+        # Настройки качества рендера
+        self.spin_prev_w = QSpinBox(); self.spin_prev_w.setRange(50, 1024); self.spin_prev_w.setValue(self.state.preview_render_w)
+        self.spin_prev_h = QSpinBox(); self.spin_prev_h.setRange(20, 512); self.spin_prev_h.setValue(self.state.preview_render_h)
+        self.spin_tip_size = QSpinBox(); self.spin_tip_size.setRange(20, 512); self.spin_tip_size.setValue(self.state.tip_render_size)
         
         self.lbl_auto_v, self.lbl_auto_h = QLabel("Auto (Vert):"), QLabel("Auto (Horiz):")
         self.lbl_man_l, self.lbl_man_a, self.lbl_man_b = QLabel("Layout:"), QLabel("Anchor:"), QLabel("Settings Bar:")
@@ -216,14 +225,19 @@ class SmartPanelDocker(QDockWidget):
         form_layout.addRow("Total Slots:", self.spin_slots)
         form_layout.addRow("Target Cols/Rows:", self.spin_divider)
         form_layout.addRow("Base Size (px):", self.spin_base)
-        form_layout.addRow("Slot Padding:", self.spin_padding)
         form_layout.addRow("Proportions:", aspect_layout)
         
-        # Добавляем в форму
-        form_layout.addRow("--- Render Settings ---", QLabel(""))
-        form_layout.addRow("Render Width (px):", self.spin_prev_w)
-        form_layout.addRow("Render Height (px):", self.spin_prev_h)
-        form_layout.addRow("Brush Scale Factor:", self.spin_scale)
+        form_layout.addRow("--- Visibility ---", QLabel(""))
+        form_layout.addRow("", self.chk_icon)
+        form_layout.addRow("", self.chk_stroke)
+        form_layout.addRow("", self.chk_tip)
+        form_layout.addRow("", self.chk_engine)
+        form_layout.addRow("", self.chk_recolor)
+        
+        form_layout.addRow("--- Render Quality ---", QLabel(""))
+        form_layout.addRow("Stroke Width (px):", self.spin_prev_w)
+        form_layout.addRow("Stroke Height (px):", self.spin_prev_h)
+        form_layout.addRow("Tip Size (px):", self.spin_tip_size)
         
         settings_widget.setLayout(form_layout)
         action = QWidgetAction(self.settings_menu)
@@ -232,10 +246,13 @@ class SmartPanelDocker(QDockWidget):
         
         self.update_settings_visibility()
         
+        # Подключаем сигналы
         for w in [self.cmb_mode, self.cmb_auto_vert, self.cmb_auto_horiz, self.cmb_layout, self.cmb_anchor, self.cmb_bar]:
             w.currentTextChanged.connect(self.on_settings_changed)
-        for w in [self.spin_slots, self.spin_divider, self.spin_base, self.spin_padding, self.spin_asp_w, self.spin_asp_h, self.spin_prev_w, self.spin_prev_h, self.spin_scale]:
+        for w in [self.spin_slots, self.spin_divider, self.spin_base, self.spin_padding, self.spin_asp_w, self.spin_asp_h, self.spin_prev_w, self.spin_prev_h, self.spin_tip_size]:
             w.valueChanged.connect(self.on_settings_changed)
+        for w in [self.chk_icon, self.chk_stroke, self.chk_tip, self.chk_engine, self.chk_recolor]:
+            w.stateChanged.connect(self.on_settings_changed)
 
     def update_settings_visibility(self):
         is_auto = (self.cmb_mode.currentText() == "auto")
@@ -265,13 +282,17 @@ class SmartPanelDocker(QDockWidget):
         self.state.total_slots = self.spin_slots.value()
         self.state.main_divider = self.spin_divider.value()
         self.state.base_icon_size = self.spin_base.value()
-        self.state.slot_padding = self.spin_padding.value()
         self.state.aspect_w, self.state.aspect_h = float(self.spin_asp_w.value()), float(self.spin_asp_h.value())
         
-        # Сохраняем новые настройки
+        self.state.show_icon = self.chk_icon.isChecked()
+        self.state.show_stroke = self.chk_stroke.isChecked()
+        self.state.show_tip = self.chk_tip.isChecked()
+        self.state.show_engine = self.chk_engine.isChecked()
+        self.state.recolor_preview = self.chk_recolor.isChecked()
+        
         self.state.preview_render_w = self.spin_prev_w.value()
         self.state.preview_render_h = self.spin_prev_h.value()
-        self.state.brush_scale_coef = self.spin_scale.value()
+        self.state.tip_render_size = self.spin_tip_size.value()
         
         self.update_settings_visibility()
         self.state.save()

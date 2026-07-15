@@ -20,9 +20,17 @@ class PanelState:
         self.aspect_h = float(self.settings.value("aspect_h", 1.0))
         self.slot_padding = int(self.settings.value("slot_padding", 2))
         
-        # --- НОВЫЕ НАСТРОЙКИ РЕНДЕРА ---
+        # --- НАСТРОЙКИ ВИДИМОСТИ ---
+        self.show_icon = self.settings.value("show_icon", "true") == "true"
+        self.show_stroke = self.settings.value("show_stroke", "true") == "true"
+        self.show_tip = self.settings.value("show_tip", "true") == "true"
+        self.show_engine = self.settings.value("show_engine", "true") == "true"
+        self.recolor_preview = self.settings.value("recolor_preview", "false") == "true"
+        
+        # --- НАСТРОЙКИ РЕНДЕРА ---
         self.preview_render_w = int(self.settings.value("preview_render_w", 400))
         self.preview_render_h = int(self.settings.value("preview_render_h", 120))
+        self.tip_render_size = int(self.settings.value("tip_render_size", 120))
         self.brush_scale_coef = float(self.settings.value("brush_scale_coef", 0.4))
         
         self.current_dock_area = Qt.DockWidgetArea(int(self.settings.value("current_dock_area", int(Qt.RightDockWidgetArea))))
@@ -46,21 +54,33 @@ class PanelState:
         self.settings.setValue("aspect_h", self.aspect_h)
         self.settings.setValue("slot_padding", self.slot_padding)
         
-        # --- СОХРАНЕНИЕ НАСТРОЕК РЕНДЕРА ---
+        self.settings.setValue("show_icon", self.show_icon)
+        self.settings.setValue("show_stroke", self.show_stroke)
+        self.settings.setValue("show_tip", self.show_tip)
+        self.settings.setValue("show_engine", self.show_engine)
+        self.settings.setValue("recolor_preview", self.recolor_preview)
+        
         self.settings.setValue("preview_render_w", self.preview_render_w)
         self.settings.setValue("preview_render_h", self.preview_render_h)
+        self.settings.setValue("tip_render_size", self.tip_render_size)
         self.settings.setValue("brush_scale_coef", self.brush_scale_coef)
         
         self.settings.setValue("slot_data", json.dumps(self.slot_data))
         self.settings.setValue("current_dock_area", int(self.current_dock_area))
         self.settings.setValue("is_floating", self.is_floating)
 
-    def get_effective_state(self, is_wide=False):
-        if self.mode == "manual": return self.manual_layout, self.manual_anchor, self.manual_bar
-        if self.is_floating:
-            return ("horizontal", self.auto_horiz_docks, "Top") if is_wide else ("vertical", self.auto_vert_docks, "Left")
-        
-        if self.current_dock_area == Qt.TopDockWidgetArea: return "horizontal", self.auto_horiz_docks, "Top"
-        elif self.current_dock_area == Qt.BottomDockWidgetArea: return "horizontal", self.auto_horiz_docks, "Bottom"
-        elif self.current_dock_area == Qt.LeftDockWidgetArea: return "vertical", self.auto_vert_docks, "Left"
-        else: return "vertical", self.auto_vert_docks, "Right"
+    def get_effective_state(self, is_wide):
+        """
+        Возвращает эффективные настройки интерфейса (layout, anchor, bar).
+        is_wide: True, если панель шире своей высоты (горизонтальная ориентация).
+        """
+        if self.mode == "auto":
+            # Логика авто-настройки:
+            # Если панель широкая — вертикальный лейаут, если узкая — горизонтальный
+            layout = "horizontal" if is_wide else "vertical"
+            anchor = self.auto_vert_docks if is_wide else self.auto_horiz_docks
+            bar = "Top" if is_wide else "Left"
+            return layout, anchor, bar
+        else:
+            # Ручной режим: используем сохраненные пользователем настройки
+            return self.manual_layout, self.manual_anchor, self.manual_bar
