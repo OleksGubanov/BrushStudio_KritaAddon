@@ -161,7 +161,6 @@ class BrushSlot(QWidget):
         if not self.brush_name: return
         from .preview_service import generate_brush_masks_sync
         
-        # Get dictionary with both masks using the new algorithm parameters
         masks = generate_brush_masks_sync(
             self.brush_name, 
             self.state.preview_render_w, 
@@ -216,7 +215,6 @@ class BrushSlot(QWidget):
                 painter.drawRoundedRect(draw_rect.adjusted(2, 2, -2, -2), 3, 3)
             return
 
-        # Load visibility states
         show_icon = self.state.show_icon
         show_stroke = self.state.show_stroke
         show_tip = self.state.show_tip
@@ -229,7 +227,6 @@ class BrushSlot(QWidget):
         
         target_color = hl_color if (self.is_hovered or is_active) else text_color
 
-        # 1. Draw Engine Emoji (Right)
         if show_engine:
             engine_emoji = get_engine_emoji(self.brush_name)
             if engine_emoji:
@@ -242,7 +239,6 @@ class BrushSlot(QWidget):
                 painter.drawText(engine_rect, Qt.AlignCenter, engine_emoji)
                 right_edge -= (em_w + padding)
 
-        # 2. Draw Brush Tip (Right of stroke, left of Emoji)
         if show_tip and self.tip_mask and not self.tip_mask.isNull():
             tip_side = min(right_edge - current_x, draw_rect.height() - (padding * 2))
             if tip_side > 5:
@@ -257,7 +253,6 @@ class BrushSlot(QWidget):
                 painter.drawImage(t_rect, final_tip)
                 right_edge -= (tip_side + padding)
 
-        # 3. Draw Icon (Left)
         if show_icon and self.icon_pixmap and not self.icon_pixmap.isNull():
             icon_side = min(right_edge - current_x, draw_rect.height() - (padding * 2))
             if icon_side > 5:
@@ -271,7 +266,6 @@ class BrushSlot(QWidget):
                 )
                 current_x += icon_rect.width() + padding
 
-        # 4. Draw Stroke (Center, fills remaining space)
         if show_stroke and self.stroke_mask and not self.stroke_mask.isNull():
             stroke_w = right_edge - current_x
             if stroke_w > 10:
