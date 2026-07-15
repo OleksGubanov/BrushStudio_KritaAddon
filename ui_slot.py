@@ -25,27 +25,28 @@ def base64_to_image(b64_string):
 
 def recolor_mask(mask_image, color):
     """
-    Превращает Ч/Б маску (белый мазок на черном фоне) в цветной мазок
-    на прозрачном фоне с сохранением идеального сглаживания (anti-aliasing).
+    Оптимизированная версия. Использует C++ ядро Qt для мгновенной перекраски.
     """
     if not mask_image or mask_image.isNull():
         return QImage()
     
-    w, h = mask_image.width(), mask_image.height()
-    out_img = QImage(w, h, QImage.Format_ARGB32)
+    # 1. Конвертируем Ч/Б маску в альфа-канал (белый = непрозрачный, черный = прозрачный)
+    # Формат Format_Grayscale8 или Format_Alpha8 отлично для этого подходит
+    alpha_mask = mask_image.convertToFormat(QImage.Format_Alpha8)
     
-    r_color = color.red()
-    g_color = color.green()
-    b_color = color.blue()
+    # 2. Создаем итоговое изображение и заливаем прозрачным фоном
+    out_img = QImage(mask_image.width(), mask_image.height(), QImage.Format_ARGB32_Premultiplied)
+    out_img.fill(Qt.transparent)
     
-    # Быстрый пиксельный проход для переноса яркости маски в альфа-канал
-    for y in range(h):
-        for x in range(w):
-            pixel = mask_image.pixel(x, y)
-            # Извлекаем интенсивность белого из красного канала (0-255)
-            alpha = (pixel >> 16) & 0xFF 
-            # Формируем пиксель: Alpha + целевой RGB
-            out_img.setPixel(x, y, (alpha << 24) | (r_color << 16) | (g_color << 8) | b_color)
+    # 3. Мгновенная заливка цветом с наложением маски
+    painter = QPainter(out_img)
+    painter.setPen(Qt.NoPen)
+    painter.fillRect(out_img.rect(), color) # Заливаем целевым цветом
+    
+    # Оставляем цвет только там, где маска непрозрачная
+    painter.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+    painter.drawImage(0, 0, alpha_mask)
+    painter.end()
             
     return out_img
 
@@ -299,7 +300,7 @@ class BrushSlot(QWidget):
             current_x += icon_rect.width() + padding
             available_width -= icon_rect.width() + padding
 
-        # Расчет зоны под иконку Движка (Emoji в правом верхнем углу)
+        # Расчет зоны под иконку Движка
         engine_rect = QRect()
         engine_emoji = ""
         if show_engine:
@@ -324,13 +325,15 @@ class BrushSlot(QWidget):
                                 int(available_width), draw_rect.height() - (padding * 2))
             
             stroke_color = hl_color if (self.is_hovered or is_active) else text_color
-            recolored_stroke = recolor_mask(self.stroke_mask, stroke_color)
+            
+            # ОПТИМИЗАЦИЯ: Масштабируем до перекраски!
+            scaled_mask = self.stroke_mask.scaled(stroke_rect.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            recolored_stroke = recolor_mask(scaled_mask, stroke_color)
             
             if not recolored_stroke.isNull():
-                scaled_stroke = recolored_stroke.scaled(stroke_rect.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                target_rect = QRect(0, 0, scaled_stroke.width(), scaled_stroke.height())
+                target_rect = QRect(0, 0, recolored_stroke.width(), recolored_stroke.height())
                 target_rect.moveCenter(stroke_rect.center())
-                painter.drawImage(target_rect, scaled_stroke)
+                painter.drawImage(target_rect, recolored_stroke)
 
         # Отрисовка Emoji
         if show_engine and engine_emoji and not engine_rect.isEmpty():

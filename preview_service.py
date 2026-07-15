@@ -21,11 +21,11 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
             view.setCurrentBrushPreset(target_preset)
             
             # --- НОРМАЛИЗАЦИЯ КИСТИ И ТЕКСТУРЫ ---
-            # Принудительно устанавливаем размер кисти в зависимости от высоты рендер-холста
             if hasattr(target_preset, 'size'):
                 original_size = target_preset.size()
-                normalized_size = max(5, int(height * scale_coef))
-                target_preset.setSize(normalized_size)
+                # Строго фиксируем размер в пикселях (используем float для точности Krita API)
+                fixed_size = float(max(5, int(height * scale_coef)))
+                target_preset.setSize(fixed_size)
         
         black = krita.ManagedColor("RGBA", "U8", "")
         black.fromQColor(QColor(0, 0, 0, 255))
@@ -38,7 +38,6 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
         empty_bytes = b'\x00' * (int(width) * int(height) * 4)
         paint_layer.setPixelData(empty_bytes, 0, 0, int(width), int(height))
         
-        # Оставляем больше отступа по краям для крупных мазков
         padding = int(width * 0.08)
         
         path = QPainterPath()
@@ -49,15 +48,16 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
         end_point = QPointF(width - padding, height / 2)
         path.quadTo(control_point, end_point)
         
+        # Рисуем основной путь (давление 1.0 по умолчанию)
         paint_layer.paintPath(path, "ForegroundColor", "None")
         
-        # Длина сужения кончиков (taper)
         taper_len = int(width * 0.05)
         taper_start_end = QPointF(padding + taper_len, (height / 2) - 1) 
-        paint_layer.paintLine(start_point.toPoint(), taper_start_end.toPoint(), 0.1, 1.0)
+        # Давление меняем с 0.5 до 1.0, чтобы кончики не исчезали
+        paint_layer.paintLine(start_point.toPoint(), taper_start_end.toPoint(), 0.5, 1.0)
         
         taper_end_start = QPointF(width - padding - taper_len, (height / 2) - 1)
-        paint_layer.paintLine(taper_end_start.toPoint(), end_point.toPoint(), 1.0, 0.1)
+        paint_layer.paintLine(taper_end_start.toPoint(), end_point.toPoint(), 1.0, 0.5)
         
         doc.refreshProjection()
         doc.waitForDone()
@@ -65,17 +65,16 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
         pixel_bytes = paint_layer.pixelData(0, 0, int(width), int(height))
         
     finally:
-        # Восстанавливаем оригинальный размер
         if target_preset and original_size is not None:
             target_preset.setSize(original_size)
-        # Убираем флаг "изменено", чтобы Krita не спрашивала "Сохранить ли?"
         doc.setModified(False)
         doc.close()
 
     if not pixel_bytes or all(b == 0 for b in pixel_bytes): return None
         
-    # Сборка Ч/Б Маски
     original_img = QImage(pixel_bytes, int(width), int(height), QImage.Format_RGBA8888).copy()
+    
+    # Сразу создаем прозрачную маску с белым мазком
     white_stroke = QImage(int(width), int(height), QImage.Format_ARGB32_Premultiplied)
     white_stroke.fill(Qt.transparent)
     
@@ -85,15 +84,8 @@ def generate_brush_mask_sync(brush_name, width, height, scale_coef=0.4):
     p1.fillRect(white_stroke.rect(), Qt.white)
     p1.end()
     
-    bw_mask = QImage(int(width), int(height), QImage.Format_RGB32)
-    bw_mask.fill(Qt.black)
-    
-    p2 = QPainter(bw_mask)
-    p2.drawImage(0, 0, white_stroke)
-    p2.end()
-    
-    return bw_mask
-
+    # Больше не превращаем её в черно-белую картинку, отдаем с прозрачностью!
+    return white_stroke
 class PreviewService:
     def __init__(self, state):
         self.state = state
