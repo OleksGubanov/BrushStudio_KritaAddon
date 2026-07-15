@@ -158,7 +158,7 @@ class SmartPanelDocker(QDockWidget):
                 self.get_presets_map()[new_name] = preset
                 
                 # Запускаем рендер сразу при добавлении кисти
-                from .preview_service import generate_brush_mask_sync
+                from .preview_service import generate_brush_masks_sync # Исправлено: добавлена 's'
                 slot_widget = self.grid.slots[idx]
                 
                 masks = generate_brush_masks_sync(
@@ -170,7 +170,10 @@ class SmartPanelDocker(QDockWidget):
                 )
                 
                 # Передаем маску в слот, он сам ее закодирует и сохранит
-                slot_widget.set_brush(new_name, preset.image(), stroke_mask=masks.get('stroke'), tip_mask=masks.get('tip'))
+                if masks:
+                    slot_widget.set_brush(new_name, preset.image(), stroke_mask=masks.get('stroke'), tip_mask=masks.get('tip'))
+                else:
+                    slot_widget.set_brush(new_name, preset.image())
                 
     def clear_slot(self, idx):
         if str(idx) in self.state.slot_data:

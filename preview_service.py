@@ -7,7 +7,7 @@ def auto_crop_image(img_bytes, canvas_size, target_width, target_height):
     """Преобразует байты в QImage, находит границы через QRegion и кадрирует"""
     original_img = QImage(img_bytes, canvas_size, canvas_size, QImage.Format_RGBA8888).copy()
     
-    # Решение ошибки: используем QBitmap и QRegion для поиска границ
+    # Ищем границы контента (альфа-канал)
     alpha_mask = original_img.createAlphaMask()
     bitmap = QBitmap.fromImage(alpha_mask)
     region = QRegion(bitmap)
@@ -19,6 +19,18 @@ def auto_crop_image(img_bytes, canvas_size, target_width, target_height):
     pad = 15
     bbox.adjust(-pad, -pad, pad, pad)
     bbox = bbox.intersected(original_img.rect())
+    
+    # --- ИСПРАВЛЕНИЕ ДЛЯ AIRBRUSH И СПРЕЕВ ---
+    # Жестко ограничиваем максимальную высоту bbox, отталкиваясь от пропорций слота.
+    # Если кисть разлетелась по высоте, мы просто обрезаем лишнее сверху и снизу,
+    # чтобы при масштабировании мазок не превратился в точку.
+    aspect_ratio = target_height / float(target_width)
+    max_allowed_h = int(bbox.width() * aspect_ratio * 1.5) # 1.5 - коэффициент запаса
+    
+    if bbox.height() > max_allowed_h:
+        center_y = bbox.center().y()
+        bbox.setTop(max(0, int(center_y - max_allowed_h / 2)))
+        bbox.setBottom(min(canvas_size, int(center_y + max_allowed_h / 2)))
     
     cropped_img = original_img.copy(bbox)
     return cropped_img.scaled(int(target_width), int(target_height), Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -73,10 +85,16 @@ def generate_brush_masks_sync(brush_name, stroke_w, stroke_h, tip_size, scale_co
         
         padding = int(canvas_size * 0.08)
         path = QPainterPath()
-        path.moveTo(QPointF(padding, canvas_size / 2))
-        path.cubicTo(QPointF(canvas_size * 0.3, canvas_size * 0.25), 
-                     QPointF(canvas_size * 0.7, canvas_size * 0.75), 
-                     QPointF(canvas_size - padding, canvas_size / 2))
+        
+        # Для спрея/аэрографа лучше делать более прямую линию, чтобы минимизировать вертикальный разлет
+        if any(key in engine for key in ["spray", "airbrush"]):
+            path.moveTo(QPointF(padding, canvas_size / 2))
+            path.lineTo(QPointF(canvas_size - padding, canvas_size / 2))
+        else:
+            path.moveTo(QPointF(padding, canvas_size / 2))
+            path.cubicTo(QPointF(canvas_size * 0.3, canvas_size * 0.25), 
+                         QPointF(canvas_size * 0.7, canvas_size * 0.75), 
+                         QPointF(canvas_size - padding, canvas_size / 2))
         
         steps = 80
         for i in range(steps):
